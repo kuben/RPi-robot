@@ -20,6 +20,7 @@
 #include <time.h>
 #include <pthread.h>
 #include <string.h>
+#include <curses.h>
 
 #define PAGE_SIZE (4*1024)
 #define BLOCK_SIZE (4*1024)
@@ -52,7 +53,14 @@ struct arg_struct
   int g;
 };
 
+void set_max(double *freq);
+void set_min(double *freq);
+void increase(double *freq);
+void decrease(double *freq);
+
+
 void setup_io();
+void manual_input(double *freq_l, double *freq_r, int *polarity);
 void timespec_diff(struct timespec *start, struct timespec *stop, long *result);
 void set_pin(int g,int state);
 void *toggle_pins(void * arguments);
@@ -77,6 +85,7 @@ int main(int argc, char **argv)
 
   *freq_l = (double){atof(argv[1])};
   *freq_r = (double){atof(argv[2])};
+  int polarity = 0;
 
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
   args_l->freq = freq_l;
@@ -104,34 +113,73 @@ int main(int argc, char **argv)
   printf("pthread_create() for thread 1 returns: %d\n",iret1);
   printf("pthread_create() for thread 2 returns: %d\n",iret2);
 
-  char l_text[10];
-  char r_text[10];
-  int polarity;
+  /* Initialize Curses*/
+  initscr();
+  timeout(-1);
+
   while (*freq_l >= 0 || *freq_r >= 0)
-  {/*
+  {
+    set_pin(22,CHECK_BIT(polarity,0));
+    set_pin(27,CHECK_BIT(polarity,1));
+   
+    int c = getch();
+    switch(c) {
+      case '3':
+	printw("%c: Left motor max speed\n",c);
+        set_max(freq_l);
+	break;
+      case 'e':
+	printw("%c: Left motor increase speed\n",c);
+        increase(freq_l);
+	break;
+      case 'd':
+	printw("%c: Left motor decrease speed\n",c);
+        decrease(freq_l);
+	break;
+      case 'c':
+	printw("%c: Left motor min speed\n",c);
+        set_min(freq_l);
+	break;
+      case '4':
+	printw("%c: Right motor max speed\n",c);
+        set_max(freq_r);
+	break;
+      case 'r':
+	printw("%c: Right motor increase speed\n",c);
+        increase(freq_r);
+	break;
+      case 'f':
+	printw("%c: Right motor decrease speed\n",c);
+        decrease(freq_r);
+	break;
+      case 'v':
+	printw("%c: Right motor min speed\n",c);
+        set_min(freq_r);
+	break;
+      case ' ':
+        endwin();
+        manual_input(freq_l, freq_r, &polarity);
+        initscr();
+        break;
+      case '`':
+        endwin();
+        *freq_l = -1;
+        *freq_r = -1;
+        return 0;
+      default:
+        printw("invalid\n");
+    }
+    char l_text[10];
+    char r_text[10];
     strncpy(l_text,"OFF",10);
     strncpy(r_text,"OFF",10);
     if (*freq_l >= 0) snprintf(l_text, 10, "%lf", *freq_l);
     if (*freq_r >= 0) snprintf(r_text, 10, "%lf", *freq_r);
+
+    mvprintw(0,0,"LEFT %-10s   RIGHT %s  POLARITY %d\n",l_text,r_text,polarity);
     
-    printf("LEFT %-10s   RIGHT %s\n",l_text,r_text);
-    char c = getchar();
-    printf("Char: %c", c);*/
+    refresh();
 
-    /*
-    printf("Set freqency of left motor: ");
-    fflush(stdout);
-    scanf("%lf",freq_l);
-
-    printf("Set freqency of right motor: ");
-    fflush(stdout);
-    scanf("%lf",freq_r);*/
-    printf("Set polarity \n");
-    scanf("%d", &polarity);
-
-    set_pin(22,CHECK_BIT(polarity,0));
-    set_pin(27,CHECK_BIT(polarity,1));
-    
   }
 
   //Unneccessary
@@ -160,7 +208,6 @@ void set_pin(int g,int state){
 void* toggle_pins(void *arguments)
 {
   struct arg_struct *args = (struct arg_struct *)arguments;
-  int rep;
   int g = args->g;
   double *freq = args->freq;
   double last_freq;
@@ -195,7 +242,7 @@ void* toggle_pins(void *arguments)
     }
 
   }
-
+  return 0;
 }
 
 //
@@ -231,14 +278,47 @@ void setup_io()
 
 
 } // setup_io
+void set_max(double *freq)
+{
+  *freq = 2500;
+}
 
+void set_min(double *freq){
+  *freq = 0;
+}
+
+void increase(double *freq)
+{
+  *freq += 100;
+  if(*freq > 2500) set_max(freq);
+}
+void decrease(double *freq)
+{
+  *freq -= 100;
+  if(*freq < 0) set_min(freq);
+}
+
+void manual_input(double *freq_l, double *freq_r, int *polarity)
+{
+  printf("Set freqency of left motor: ");
+  fflush(stdout);
+  scanf("%lf",freq_l);
+
+  printf("Set freqency of right motor: ");
+  fflush(stdout);
+  scanf("%lf",freq_r);
+  printf("Set polarity \n");
+  scanf("%d", polarity);
+
+
+}
 void timespec_diff(struct timespec *start, struct timespec *stop, long *nsec)
 {
-    if ((stop->tv_nsec - start->tv_nsec) < 0) {
-        *nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
-    } else {
-        *nsec = stop->tv_nsec - start->tv_nsec;
-    }
+  if ((stop->tv_nsec - start->tv_nsec) < 0) {
+    *nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
+  } else {
+    *nsec = stop->tv_nsec - start->tv_nsec;
+  }
 
-    return;
+  return;
 }
