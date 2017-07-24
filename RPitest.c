@@ -53,6 +53,13 @@ struct arg_struct
   int g;
 };
 
+struct poll_arg_struct
+{
+  int g;
+  long *measure_elapsed;
+  long *sleep_duration;
+};
+
 void set_max(double *freq);
 void set_min(double *freq);
 void increase(double *freq);
@@ -64,13 +71,14 @@ void manual_input(double *freq_l, double *freq_r, int *polarity);
 void timespec_diff(struct timespec *start, struct timespec *stop, long *result);
 void set_pin(int g,int state);
 void *toggle_pins(void * arguments);
+void *poll_pin(void * arguments);
 
 void printButton(int g)
 {
   if (GET_GPIO(g)) // !=0 <-> bit is 1 <- port is HIGH=3.3V
-    printf("Button pressed!\n");
+    printw("Button pressed!\n");
   else // port is LOW=0V
-    printf("Button released!\n");
+    printw("Button released!\n");
 }
 
 int main(int argc, char **argv)
@@ -78,13 +86,17 @@ int main(int argc, char **argv)
   // Set up gpi pointer for direct register access
   setup_io();
 
-  pthread_t motor_l, motor_r;
-  int iret1, iret2;
+  pthread_t motor_l, motor_r, poll_thread;
+  int iret1, iret2, iret3;
   double *freq_l = malloc(sizeof(double));
   double *freq_r = malloc(sizeof(double));
+  long *measure_elapsed = malloc(sizeof(long));
+  long *sleep_duration = malloc(sizeof(long));
 
   *freq_l = (double){atof(argv[1])};
   *freq_r = (double){atof(argv[2])};
+  *sleep_duration = 100000;
+  *measure_elapsed = 1000000000;
   int polarity = 0;
 
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
@@ -94,6 +106,11 @@ int main(int argc, char **argv)
   struct arg_struct *args_r = malloc(sizeof(struct arg_struct));
   args_r->freq = freq_r;
   args_r->g = 18;
+
+  struct poll_arg_struct *args_poll = malloc(sizeof(struct poll_arg_struct));
+  args_poll->g = 4;
+  args_poll->measure_elapsed= measure_elapsed;
+  args_poll->sleep_duration = sleep_duration;
 
   /* Create independent threads each of which will execute function */
   iret1 = pthread_create( &motor_l, NULL, toggle_pins, (void *)args_l);               
@@ -110,18 +127,41 @@ int main(int argc, char **argv)
 	  exit(EXIT_FAILURE);
   }  
 
+  iret3 = pthread_create( &poll_thread, NULL, poll_pin, (void *)args_poll);               
+  if(iret3)
+  {  
+	  fprintf(stderr,"Error - pthread_create() return code: %d\n",iret3);
+	  exit(EXIT_FAILURE);
+  }  
+
   printf("pthread_create() for thread 1 returns: %d\n",iret1);
   printf("pthread_create() for thread 2 returns: %d\n",iret2);
+  printf("pthread_create() for thread 3 returns: %d\n",iret3);
 
   /* Initialize Curses*/
   initscr();
+  noecho();
   timeout(-1);
 
   while (*freq_l >= 0 || *freq_r >= 0)
   {
+    char l_text[10];
+    char r_text[10];
+    char status_text[50];
+    strncpy(l_text,"OFF",10);
+    strncpy(r_text,"OFF",10);
+    if (*freq_l >= 0) snprintf(l_text, 10, "%lf", *freq_l);
+    if (*freq_r >= 0) snprintf(r_text, 10, "%lf", *freq_r);
+    double read_freq = 1000000000.0/ *measure_elapsed;
+    snprintf(status_text, 50, "%lf", read_freq);
+
+    mvprintw(0,0,"LEFT %-10s   RIGHT %s  POLARITY %d READ FREQ %s\n",l_text,r_text,polarity,status_text);
+    refresh();
+
     set_pin(22,CHECK_BIT(polarity,0));
     set_pin(27,CHECK_BIT(polarity,1));
    
+    move(1,0);
     int c = getch();
     switch(c) {
       case '3':
@@ -165,21 +205,39 @@ int main(int argc, char **argv)
         endwin();
         *freq_l = -1;
         *freq_r = -1;
+        *sleep_duration = -1;
         return 0;
-      default:
-        printw("invalid\n");
+      case 'p':
+	endwin();
+	INP_GPIO(4);
+        struct timespec ts_start;
+        struct timespec ts_test;
+        struct timespec ts_end;
+	long elapsed;
+	int k;
+	//500ns just empty code
+	//Av. 500ns - 700ns GET_GPIO(4)
+	//Av. 1200ns measure time; GET_GPIO; measure time
+        /*clock_gettime(CLOCK_MONOTONIC, &ts_start);
+
+        clock_gettime(CLOCK_MONOTONIC, &ts_test);
+	i = GET_GPIO(4);
+        clock_gettime(CLOCK_MONOTONIC, &ts_test);
+	
+        clock_gettime(CLOCK_MONOTONIC, &ts_end);
+        timespec_diff(&ts_start, &ts_end, &elapsed);
+	if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
+	else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
+	//for(int i = 0;i < 10000;i++)
+	{
+	  printf("Elapsed %ldns\n",*(measure_elapsed));
+	}
+	scanf("%d",&k);
+	initscr();
+	break;
+      default://65-68 up dn right left
+        printw("%d %c invalid\n",c,c);
     }
-    char l_text[10];
-    char r_text[10];
-    strncpy(l_text,"OFF",10);
-    strncpy(r_text,"OFF",10);
-    if (*freq_l >= 0) snprintf(l_text, 10, "%lf", *freq_l);
-    if (*freq_r >= 0) snprintf(r_text, 10, "%lf", *freq_r);
-
-    mvprintw(0,0,"LEFT %-10s   RIGHT %s  POLARITY %d\n",l_text,r_text,polarity);
-    
-    refresh();
-
   }
 
   //Unneccessary
@@ -205,6 +263,37 @@ void set_pin(int g,int state){
     GPIO_CLR = 1<<g;
   }
 }
+//Will not be able to measure 1Hz bc gettime loops around 1s
+void *poll_pin(void * arguments)
+{
+  struct poll_arg_struct *args = (struct poll_arg_struct *)arguments;
+  int g = args->g;
+  long *measure_elapsed = args->measure_elapsed;
+  long *sleep_duration= args->sleep_duration;
+  INP_GPIO(g);
+
+  struct timespec ts_last;//Last rising edge
+  struct timespec ts_now;
+  int state = 1;//Register when state goes from LOW to HIGH
+  clock_gettime(CLOCK_MONOTONIC, &ts_last);
+  while (*sleep_duration >= 0)
+  {
+    if (GET_GPIO(g))//Current state is HIGH
+    {
+      if (!state)//And last state was LOW.. Rising edge
+      {
+        clock_gettime(CLOCK_MONOTONIC, &ts_now);
+        timespec_diff(&ts_last, &ts_now, measure_elapsed);
+        ts_last = ts_now;
+      }
+      state = 1;//State is now HIGH
+    } else {//State is LOW
+      state = 0;
+    }
+    nanosleep((const struct timespec[]){{0, *sleep_duration}}, NULL);
+  }
+  return 0;
+}
 void* toggle_pins(void *arguments)
 {
   struct arg_struct *args = (struct arg_struct *)arguments;
@@ -218,29 +307,34 @@ void* toggle_pins(void *arguments)
 
   while (*freq >= 0)
   {
-    last_freq = *freq;
-    long halfperiod = (long)(500000000/ *freq);
-    long period = 2*halfperiod;
-    //printf("%d : Halfperiod: %dns\n",g,halfperiod);
-
-    long elapsed;
-    struct timespec ts_start;
-    struct timespec ts_mid;
-    struct timespec ts_end;
-    clock_gettime(CLOCK_MONOTONIC, &ts_end);
-    while (last_freq == *freq)
+    last_freq = *freq;//So we only have to do division when freq changes
+    if (last_freq == 0)//Special case, don'w want div by 0
     {
-      GPIO_SET = 1<<g;
-      clock_gettime(CLOCK_MONOTONIC, &ts_start);
-      timespec_diff(&ts_end, &ts_start, &elapsed);
-      nanosleep((const struct timespec[]){{0, halfperiod-elapsed}}, NULL);
-      GPIO_CLR = 1<<g;
-      clock_gettime(CLOCK_MONOTONIC, &ts_mid);
-      timespec_diff(&ts_end, &ts_mid, &elapsed);
-      nanosleep((const struct timespec[]){{0, period-elapsed}}, NULL);
-      clock_gettime(CLOCK_MONOTONIC, &ts_end);
-    }
+      GPIO_CLR = 1<<g;//Make sure output is always LOW
+      nanosleep((const struct timespec[]){{0, 1000000}}, NULL);//Sleep for 1ms before checking again 
+    } else {
+      long halfperiod = (long)(500000000/ last_freq);
+      long period = 2*halfperiod;
+      //printf("%d : Halfperiod: %dns\n",g,halfperiod);
 
+      long elapsed;
+      struct timespec ts_start;
+      struct timespec ts_mid;
+      struct timespec ts_end;
+      clock_gettime(CLOCK_MONOTONIC, &ts_end);
+      while (last_freq == *freq)
+      {
+        GPIO_SET = 1<<g;
+        clock_gettime(CLOCK_MONOTONIC, &ts_start);
+        timespec_diff(&ts_end, &ts_start, &elapsed);
+        nanosleep((const struct timespec[]){{0, halfperiod-elapsed}}, NULL);
+        GPIO_CLR = 1<<g;
+        clock_gettime(CLOCK_MONOTONIC, &ts_mid);
+        timespec_diff(&ts_end, &ts_mid, &elapsed);
+        nanosleep((const struct timespec[]){{0, period-elapsed}}, NULL);
+        clock_gettime(CLOCK_MONOTONIC, &ts_end);
+      }
+    }
   }
   return 0;
 }
@@ -251,8 +345,8 @@ void* toggle_pins(void *arguments)
 void setup_io()
 {
    /* open /dev/mem */
-   if ((mem_fd = open("/dev/mem", O_RDWR|O_SYNC) ) < 0) {
-      printf("can't open /dev/mem \n");
+   if ((mem_fd = open("/dev/gpiomem", O_RDWR|O_SYNC) ) < 0) {
+      printf("can't open /dev/gpiomem \n");
       exit(-1);
    }
 
@@ -294,8 +388,8 @@ void increase(double *freq)
 }
 void decrease(double *freq)
 {
-  *freq -= 100;
-  if(*freq < 0) set_min(freq);
+  if(*freq < 100) set_min(freq);
+  else *freq -= 100;
 }
 
 void manual_input(double *freq_l, double *freq_r, int *polarity)
@@ -307,7 +401,7 @@ void manual_input(double *freq_l, double *freq_r, int *polarity)
   printf("Set freqency of right motor: ");
   fflush(stdout);
   scanf("%lf",freq_r);
-  printf("Set polarity \n");
+  printf("Set polarity: ");
   scanf("%d", polarity);
 
 

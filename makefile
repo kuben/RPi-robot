@@ -1,4 +1,4 @@
-CFLAGS = -Wall -lncurses -pthread
+CFLAGS = -Wall -lncurses -pthread -O3
 CC = gcc
 
 default: all
