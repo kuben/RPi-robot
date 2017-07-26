@@ -46,7 +46,7 @@ volatile unsigned *gpio;
 #define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
-
+#define NSLEEPDELAY 65129
 struct arg_struct
 {
   double *freq;
@@ -56,7 +56,7 @@ struct arg_struct
 struct poll_arg_struct
 {
   int g;
-  long *measure_elapsed;
+  double *measured_freq;
   long *sleep_duration;
 };
 
@@ -71,6 +71,7 @@ void manual_input(double *freq_l, double *freq_r, int *polarity);
 void timespec_diff(struct timespec *start, struct timespec *stop, long *result);
 void set_pin(int g,int state);
 void *toggle_pins(void * arguments);
+int poll_pin_n_waves(int g, int n, double *return_freq);
 void *poll_pin(void * arguments);
 
 void printButton(int g)
@@ -90,13 +91,13 @@ int main(int argc, char **argv)
   int iret1, iret2, iret3;
   double *freq_l = malloc(sizeof(double));
   double *freq_r = malloc(sizeof(double));
-  long *measure_elapsed = malloc(sizeof(long));
+  double *measured_freq = malloc(sizeof(double));
   long *sleep_duration = malloc(sizeof(long));
 
   *freq_l = (double){atof(argv[1])};
   *freq_r = (double){atof(argv[2])};
-  *sleep_duration = 100000;
-  *measure_elapsed = 1000000000;
+  *sleep_duration = 1000000;
+  *measured_freq = 0.0;
   int polarity = 0;
 
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
@@ -109,7 +110,7 @@ int main(int argc, char **argv)
 
   struct poll_arg_struct *args_poll = malloc(sizeof(struct poll_arg_struct));
   args_poll->g = 4;
-  args_poll->measure_elapsed= measure_elapsed;
+  args_poll->measured_freq = measured_freq;
   args_poll->sleep_duration = sleep_duration;
 
   /* Create independent threads each of which will execute function */
@@ -152,8 +153,7 @@ int main(int argc, char **argv)
     strncpy(r_text,"OFF",10);
     if (*freq_l >= 0) snprintf(l_text, 10, "%lf", *freq_l);
     if (*freq_r >= 0) snprintf(r_text, 10, "%lf", *freq_r);
-    double read_freq = 1000000000.0/ *measure_elapsed;
-    snprintf(status_text, 50, "%lf", read_freq);
+    snprintf(status_text, 50, "%lf", *measured_freq);
 
     mvprintw(0,0,"LEFT %-10s   RIGHT %s  POLARITY %d READ FREQ %s\n",l_text,r_text,polarity,status_text);
     refresh();
@@ -208,9 +208,7 @@ int main(int argc, char **argv)
         *sleep_duration = -1;
         return 0;
       case 'p':
-	endwin();
-	INP_GPIO(4);
-        struct timespec ts_start;
+        /*struct timespec ts_start;
         struct timespec ts_test;
         struct timespec ts_end;
 	long elapsed;
@@ -218,7 +216,7 @@ int main(int argc, char **argv)
 	//500ns just empty code
 	//Av. 500ns - 700ns GET_GPIO(4)
 	//Av. 1200ns measure time; GET_GPIO; measure time
-        /*clock_gettime(CLOCK_MONOTONIC, &ts_start);
+        clock_gettime(CLOCK_MONOTONIC, &ts_start);
 
         clock_gettime(CLOCK_MONOTONIC, &ts_test);
 	i = GET_GPIO(4);
@@ -229,11 +227,6 @@ int main(int argc, char **argv)
 	if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
 	else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
 	//for(int i = 0;i < 10000;i++)
-	{
-	  printf("Elapsed %ldns\n",*(measure_elapsed));
-	}
-	scanf("%d",&k);
-	initscr();
 	break;
       default://65-68 up dn right left
         printw("%d %c invalid\n",c,c);
@@ -263,33 +256,54 @@ void set_pin(int g,int state){
     GPIO_CLR = 1<<g;
   }
 }
-//Will not be able to measure 1Hz bc gettime loops around 1s
-void *poll_pin(void * arguments)
+int poll_pin_n_waves(int g, int n, double *return_freq)
 {
-  struct poll_arg_struct *args = (struct poll_arg_struct *)arguments;
-  int g = args->g;
-  long *measure_elapsed = args->measure_elapsed;
-  long *sleep_duration= args->sleep_duration;
+  long elapsed[n+1];//Will ignore the first one because it is incorrect
+  int i = 0;
   INP_GPIO(g);
 
   struct timespec ts_last;//Last rising edge
   struct timespec ts_now;
   int state = 1;//Register when state goes from LOW to HIGH
   clock_gettime(CLOCK_MONOTONIC, &ts_last);
-  while (*sleep_duration >= 0)
+  while (i < n + 1)
   {
     if (GET_GPIO(g))//Current state is HIGH
     {
       if (!state)//And last state was LOW.. Rising edge
       {
         clock_gettime(CLOCK_MONOTONIC, &ts_now);
-        timespec_diff(&ts_last, &ts_now, measure_elapsed);
+        timespec_diff(&ts_last, &ts_now, &elapsed[i]);
         ts_last = ts_now;
+	i++;
       }
       state = 1;//State is now HIGH
     } else {//State is LOW
       state = 0;
     }
+  }
+
+  //TODO implement error codes, such as sleep time shorter than polling time
+  //Calculate mean
+  long sum = 0;
+  for (i = 1;i<n+1;i++) sum += elapsed[i];
+
+  //Convert ns to s, and invert to Hz
+  *return_freq = (double)1000000000.0*n/sum;
+  return 0;
+}
+//Will not be able to measure 1Hz bc gettime loops around 1s
+void *poll_pin(void * arguments)
+{
+  struct poll_arg_struct *args = (struct poll_arg_struct *)arguments;
+  int g = args->g;
+  double *measured_freq = args->measured_freq;
+  long *sleep_duration= args->sleep_duration;
+  INP_GPIO(g);
+
+  while (*sleep_duration >= 0)
+  {
+    poll_pin_n_waves(g, 10, measured_freq);
     nanosleep((const struct timespec[]){{0, *sleep_duration}}, NULL);
   }
   return 0;
@@ -304,7 +318,6 @@ void* toggle_pins(void *arguments)
   // Set GPIO pins 11 to output
   INP_GPIO(g); // must use INP_GPIO before we can use OUT_GPIO
   OUT_GPIO(g);
-
   while (*freq >= 0)
   {
     last_freq = *freq;//So we only have to do division when freq changes
@@ -327,11 +340,12 @@ void* toggle_pins(void *arguments)
         GPIO_SET = 1<<g;
         clock_gettime(CLOCK_MONOTONIC, &ts_start);
         timespec_diff(&ts_end, &ts_start, &elapsed);
-        nanosleep((const struct timespec[]){{0, halfperiod-elapsed}}, NULL);
+	//nanosleep always 60us too long
+        nanosleep((const struct timespec[]){{0, halfperiod-elapsed-NSLEEPDELAY}}, NULL);
         GPIO_CLR = 1<<g;
         clock_gettime(CLOCK_MONOTONIC, &ts_mid);
         timespec_diff(&ts_end, &ts_mid, &elapsed);
-        nanosleep((const struct timespec[]){{0, period-elapsed}}, NULL);
+        nanosleep((const struct timespec[]){{0, period-elapsed-NSLEEPDELAY}}, NULL);
         clock_gettime(CLOCK_MONOTONIC, &ts_end);
       }
     }
