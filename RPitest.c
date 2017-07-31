@@ -71,7 +71,7 @@ void manual_input(double *freq_l, double *freq_r, int *polarity);
 void timespec_diff(struct timespec *start, struct timespec *stop, long *result);
 void set_pin(int g,int state);
 void *toggle_pins(void * arguments);
-int poll_pin_n_waves(int g, int n, double *return_freq);
+int poll_pin_n_waves(int g, int n, double *return_freq, int max_loop_iters);
 void *poll_pin(void * arguments);
 
 void printButton(int g)
@@ -114,26 +114,26 @@ int main(int argc, char **argv)
   args_poll->sleep_duration = sleep_duration;
 
   /* Create independent threads each of which will execute function */
-  iret1 = pthread_create( &motor_l, NULL, toggle_pins, (void *)args_l);               
+  iret1 = pthread_create( &motor_l, NULL, toggle_pins, (void *)args_l);
   if(iret1)
-  {  
+  {
 	  fprintf(stderr,"Error - pthread_create() return code: %d\n",iret1);
 	  exit(EXIT_FAILURE);
   }
 
-  iret2 = pthread_create( &motor_r, NULL, toggle_pins, (void *)args_r);               
+  iret2 = pthread_create( &motor_r, NULL, toggle_pins, (void *)args_r);
   if(iret2)
-  {  
+  {
 	  fprintf(stderr,"Error - pthread_create() return code: %d\n",iret2);
 	  exit(EXIT_FAILURE);
-  }  
+  }
 
-  iret3 = pthread_create( &poll_thread, NULL, poll_pin, (void *)args_poll);               
+  iret3 = pthread_create( &poll_thread, NULL, poll_pin, (void *)args_poll);
   if(iret3)
-  {  
+  {
 	  fprintf(stderr,"Error - pthread_create() return code: %d\n",iret3);
 	  exit(EXIT_FAILURE);
-  }  
+  }
 
   printf("pthread_create() for thread 1 returns: %d\n",iret1);
   printf("pthread_create() for thread 2 returns: %d\n",iret2);
@@ -160,7 +160,7 @@ int main(int argc, char **argv)
 
     set_pin(22,CHECK_BIT(polarity,0));
     set_pin(27,CHECK_BIT(polarity,1));
-   
+
     move(1,0);
     int c = getch();
     switch(c) {
@@ -221,7 +221,7 @@ int main(int argc, char **argv)
         clock_gettime(CLOCK_MONOTONIC, &ts_test);
 	i = GET_GPIO(4);
         clock_gettime(CLOCK_MONOTONIC, &ts_test);
-	
+
         clock_gettime(CLOCK_MONOTONIC, &ts_end);
         timespec_diff(&ts_start, &ts_end, &elapsed);
 	if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
@@ -256,10 +256,12 @@ void set_pin(int g,int state){
     GPIO_CLR = 1<<g;
   }
 }
-int poll_pin_n_waves(int g, int n, double *return_freq)
+//One loop iter approx 200ns
+int poll_pin_n_waves(int g, int n, double *return_freq, int max_loop_iters)
 {
   long elapsed[n+1];//Will ignore the first one because it is incorrect
-  int i = 0;
+  int i = 0;//Recorded rising edges
+  int j = 0;//Total loop iterations
   INP_GPIO(g);
 
   struct timespec ts_last;//Last rising edge
@@ -268,6 +270,11 @@ int poll_pin_n_waves(int g, int n, double *return_freq)
   clock_gettime(CLOCK_MONOTONIC, &ts_last);
   while (i < n + 1)
   {
+    if (j > max_loop_iters)
+    {
+      if (i > 0) return 1;//Timed out, but some waves recorded
+      return 2;
+    }
     if (GET_GPIO(g))//Current state is HIGH
     {
       if (!state)//And last state was LOW.. Rising edge
@@ -275,7 +282,8 @@ int poll_pin_n_waves(int g, int n, double *return_freq)
         clock_gettime(CLOCK_MONOTONIC, &ts_now);
         timespec_diff(&ts_last, &ts_now, &elapsed[i]);
         ts_last = ts_now;
-	i++;
+        i++;
+        j++;
       }
       state = 1;//State is now HIGH
     } else {//State is LOW
@@ -283,7 +291,6 @@ int poll_pin_n_waves(int g, int n, double *return_freq)
     }
   }
 
-  //TODO implement error codes, such as sleep time shorter than polling time
   //Calculate mean
   long sum = 0;
   for (i = 1;i<n+1;i++) sum += elapsed[i];
@@ -303,7 +310,11 @@ void *poll_pin(void * arguments)
 
   while (*sleep_duration >= 0)
   {
-    poll_pin_n_waves(g, 10, measured_freq);
+    //For now, assume not measuring shorter than 100Hz
+    //10 waves is 0.1 s => 500 000 loop iters
+    int result = poll_pin_n_waves(g, 10, measured_freq, 500000);
+    if (result == 1) *measured_freq = -1.0;
+    else if (result == 2)*measured_freq = -2.0;
     nanosleep((const struct timespec[]){{0, *sleep_duration}}, NULL);
   }
   return 0;
@@ -324,7 +335,7 @@ void* toggle_pins(void *arguments)
     if (last_freq == 0)//Special case, don'w want div by 0
     {
       GPIO_CLR = 1<<g;//Make sure output is always LOW
-      nanosleep((const struct timespec[]){{0, 1000000}}, NULL);//Sleep for 1ms before checking again 
+      nanosleep((const struct timespec[]){{0, 1000000}}, NULL);//Sleep for 1ms before checking again
     } else {
       long halfperiod = (long)(500000000/ last_freq);
       long period = 2*halfperiod;
