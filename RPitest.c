@@ -64,6 +64,7 @@ void set_max(double *freq);
 void set_min(double *freq);
 void increase(double *freq);
 void decrease(double *freq);
+void increase_by(double *freq, double inc);
 
 
 void setup_io();
@@ -96,7 +97,7 @@ int main(int argc, char **argv)
 
   *freq_l = (double){atof(argv[1])};
   *freq_r = (double){atof(argv[2])};
-  *sleep_duration = 1000000;
+  *sleep_duration = 900000000;
   *measured_freq = 0.0;
   int polarity = 0;
 
@@ -142,7 +143,9 @@ int main(int argc, char **argv)
   /* Initialize Curses*/
   initscr();
   noecho();
+  raw();
   timeout(-1);
+  int mode = 0;//0 - Increments, 1 - Hold for speed
 
   while (*freq_l >= 0 || *freq_r >= 0)
   {
@@ -163,73 +166,128 @@ int main(int argc, char **argv)
 
     move(1,0);
     int c = getch();
-    switch(c) {
-      case '3':
-	printw("%c: Left motor max speed\n",c);
-        set_max(freq_l);
-	break;
-      case 'e':
-	printw("%c: Left motor increase speed\n",c);
-        increase(freq_l);
-	break;
-      case 'd':
-	printw("%c: Left motor decrease speed\n",c);
-        decrease(freq_l);
-	break;
-      case 'c':
-	printw("%c: Left motor min speed\n",c);
-        set_min(freq_l);
-	break;
-      case '4':
-	printw("%c: Right motor max speed\n",c);
-        set_max(freq_r);
-	break;
-      case 'r':
-	printw("%c: Right motor increase speed\n",c);
-        increase(freq_r);
-	break;
-      case 'f':
-	printw("%c: Right motor decrease speed\n",c);
-        decrease(freq_r);
-	break;
-      case 'v':
-	printw("%c: Right motor min speed\n",c);
-        set_min(freq_r);
-	break;
-      case ' ':
-        endwin();
-        manual_input(freq_l, freq_r, &polarity);
-        initscr();
-        break;
-      case '`':
-        endwin();
-        *freq_l = -1;
-        *freq_r = -1;
-        *sleep_duration = -1;
-        return 0;
-      case 'p':
-        /*struct timespec ts_start;
-        struct timespec ts_test;
-        struct timespec ts_end;
-	long elapsed;
-	int k;
-	//500ns just empty code
-	//Av. 500ns - 700ns GET_GPIO(4)
-	//Av. 1200ns measure time; GET_GPIO; measure time
-        clock_gettime(CLOCK_MONOTONIC, &ts_start);
+    if (mode == 0)
+    {
+      switch(c) {
+	case '3':
+	  printw("%c: Left motor max speed\n",c);
+	  set_max(freq_l);
+	  break;
+	case 'e':
+	  printw("%c: Left motor increase speed\n",c);
+	  increase(freq_l);
+	  break;
+	case 'd':
+	  printw("%c: Left motor decrease speed\n",c);
+	  decrease(freq_l);
+	  break;
+	case 'c':
+	  printw("%c: Left motor min speed\n",c);
+	  set_min(freq_l);
+	  break;
+	case '4':
+	  printw("%c: Right motor max speed\n",c);
+	  set_max(freq_r);
+	  break;
+	case 'r':
+	  printw("%c: Right motor increase speed\n",c);
+	  increase(freq_r);
+	  break;
+	case 'f':
+	  printw("%c: Right motor decrease speed\n",c);
+	  decrease(freq_r);
+	  break;
+	case 'v':
+	  printw("%c: Right motor min speed\n",c);
+	  set_min(freq_r);
+	  break;
+	case ' ':
+	  endwin();
+	  manual_input(freq_l, freq_r, &polarity);
+	  initscr();
+	  break;
+	case '`':
+	  endwin();
+	  *freq_l = -1;
+	  *freq_r = -1;
+	  *sleep_duration = -1;
+	  return 0;
+	case 'p':
+	  /*struct timespec ts_start;
+	    struct timespec ts_test;
+	    struct timespec ts_end;
+	    long elapsed;
+	    int k;
+	  //500ns just empty code
+	  //Av. 500ns - 700ns GET_GPIO(4)
+	  //Av. 1200ns measure time; GET_GPIO; measure time
+	  clock_gettime(CLOCK_MONOTONIC, &ts_start);
 
-        clock_gettime(CLOCK_MONOTONIC, &ts_test);
-	i = GET_GPIO(4);
-        clock_gettime(CLOCK_MONOTONIC, &ts_test);
+	  clock_gettime(CLOCK_MONOTONIC, &ts_test);
+	  i = GET_GPIO(4);
+	  clock_gettime(CLOCK_MONOTONIC, &ts_test);
 
-        clock_gettime(CLOCK_MONOTONIC, &ts_end);
-        timespec_diff(&ts_start, &ts_end, &elapsed);
-	if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
-	else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
-	//for(int i = 0;i < 10000;i++)
-	break;
-      default://65-68 up dn right left
-        printw("%d %c invalid\n",c,c);
+	  clock_gettime(CLOCK_MONOTONIC, &ts_end);
+	  timespec_diff(&ts_start, &ts_end, &elapsed);
+	  if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
+	  else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
+	  //for(int i = 0;i < 10000;i++)
+	  break;
+	case 9://Tab
+	  mode = 1;
+	  timeout(100);
+	  break;
+	default://65-68 up dn right left
+	  printw("%d %c invalid\n",c,c);
+    }
+    } else {
+      switch (c) {
+	case 65:
+	  printw("Accelerating L, R\n");
+	  increase_by(freq_l, 50.0);
+	  increase_by(freq_r, 50.0);
+	  break;
+	case 66:
+	  printw("Slowing down L, R\n");
+	  increase_by(freq_l, -50.0);
+	  increase_by(freq_r, -50.0);
+	  break;
+	case 67:
+	  printw("Accelerating    R\n");
+	  increase_by(freq_r, 50.0);
+	  break;
+	case 68:
+	  printw("Accelerating L\n");
+	  increase_by(freq_l, 50.0);
+	  break;
+	case 9://Tab
+	  mode = 0;
+	  timeout(-1);
+	  break;
+	case ',':
+	  timeout(-1);
+	  break;
+	case '.':
+	  timeout(100);
+	  break;
+	case ' ':
+	  set_min(freq_l);
+	  set_min(freq_r);
+	  break;
+	case '`':
+	  endwin();
+	  *freq_l = -1;
+	  *freq_r = -1;
+	  *sleep_duration = -1;
+	  return 0;
+	case 27:
+	case 91:
+	  break;
+	default:
+	  printw("Slowing down\n");
+          increase_by(freq_l, -10.0);
+	  increase_by(freq_r, -10.0);
+      }
     }
   }
 
@@ -242,6 +300,7 @@ int main(int argc, char **argv)
   free(args_l);
   free(args_r);
 
+  free(gpio_map);
   exit(EXIT_SUCCESS);
 
   return 0;
@@ -283,12 +342,12 @@ int poll_pin_n_waves(int g, int n, double *return_freq, int max_loop_iters)
         timespec_diff(&ts_last, &ts_now, &elapsed[i]);
         ts_last = ts_now;
         i++;
-        j++;
       }
       state = 1;//State is now HIGH
     } else {//State is LOW
       state = 0;
     }
+    j++;
   }
 
   //Calculate mean
@@ -312,7 +371,7 @@ void *poll_pin(void * arguments)
   {
     //For now, assume not measuring shorter than 100Hz
     //10 waves is 0.1 s => 500 000 loop iters
-    int result = poll_pin_n_waves(g, 10, measured_freq, 500000);
+    int result = poll_pin_n_waves(g, 10, measured_freq, 5000);//500 000
     if (result == 1) *measured_freq = -1.0;
     else if (result == 2)*measured_freq = -2.0;
     nanosleep((const struct timespec[]){{0, *sleep_duration}}, NULL);
@@ -326,7 +385,6 @@ void* toggle_pins(void *arguments)
   double *freq = args->freq;
   double last_freq;
   //printf("%d : Freq: %f\n",g,*freq);
-  // Set GPIO pins 11 to output
   INP_GPIO(g); // must use INP_GPIO before we can use OUT_GPIO
   OUT_GPIO(g);
   while (*freq >= 0)
@@ -339,7 +397,7 @@ void* toggle_pins(void *arguments)
     } else {
       long halfperiod = (long)(500000000/ last_freq);
       long period = 2*halfperiod;
-      //printf("%d : Halfperiod: %dns\n",g,halfperiod);
+      printf("%d : Halfperiod: %ldns\n",g,halfperiod);
 
       long elapsed;
       struct timespec ts_start;
@@ -408,13 +466,19 @@ void set_min(double *freq){
 
 void increase(double *freq)
 {
-  *freq += 100;
-  if(*freq > 2500) set_max(freq);
+  if(*freq > 2400) set_max(freq);
+  else *freq += 100;
 }
 void decrease(double *freq)
 {
   if(*freq < 100) set_min(freq);
   else *freq -= 100;
+}
+void increase_by(double *freq, double inc)
+{
+  if(*freq + inc > 2500) set_max(freq);
+  else if(*freq + inc < 0) set_min(freq);
+  else *freq += inc;
 }
 
 void manual_input(double *freq_l, double *freq_r, int *polarity)
