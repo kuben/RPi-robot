@@ -62,8 +62,6 @@ struct poll_arg_struct
 
 void set_max(double *freq);
 void set_min(double *freq);
-void increase(double *freq);
-void decrease(double *freq);
 void increase_by(double *freq, double inc);
 
 
@@ -175,11 +173,11 @@ int main(int argc, char **argv)
 	  break;
 	case 'e':
 	  printw("%c: Left motor increase speed\n",c);
-	  increase(freq_l);
+	  increase_by(freq_l,100.0);
 	  break;
 	case 'd':
 	  printw("%c: Left motor decrease speed\n",c);
-	  decrease(freq_l);
+	  increase_by(freq_l,-100.0);
 	  break;
 	case 'c':
 	  printw("%c: Left motor min speed\n",c);
@@ -191,11 +189,11 @@ int main(int argc, char **argv)
 	  break;
 	case 'r':
 	  printw("%c: Right motor increase speed\n",c);
-	  increase(freq_r);
+	  increase_by(freq_r, 100.0);
 	  break;
 	case 'f':
 	  printw("%c: Right motor decrease speed\n",c);
-	  decrease(freq_r);
+	  increase_by(freq_r, -100.0);
 	  break;
 	case 'v':
 	  printw("%c: Right motor min speed\n",c);
@@ -249,8 +247,8 @@ int main(int argc, char **argv)
 	  break;
 	case 66:
 	  printw("Slowing down L, R\n");
-	  increase_by(freq_l, -50.0);
-	  increase_by(freq_r, -50.0);
+	  increase_by(freq_l, -250.0);
+	  increase_by(freq_r, -250.0);
 	  break;
 	case 67:
 	  printw("Accelerating    R\n");
@@ -285,8 +283,8 @@ int main(int argc, char **argv)
 	  break;
 	default:
 	  printw("Slowing down\n");
-          increase_by(freq_l, -10.0);
-	  increase_by(freq_r, -10.0);
+          increase_by(freq_l, -50.0);
+	  increase_by(freq_r, -50.0);
       }
     }
   }
@@ -397,7 +395,6 @@ void* toggle_pins(void *arguments)
     } else {
       long halfperiod = (long)(500000000/ last_freq);
       long period = 2*halfperiod;
-      printf("%d : Halfperiod: %ldns\n",g,halfperiod);
 
       long elapsed;
       struct timespec ts_start;
@@ -455,30 +452,28 @@ void setup_io()
 
 
 } // setup_io
+double lower_bound = 400.0;
+double upper_bound = 900.0;//Vcc = 9V
+//double upper_bound = 1200.0;//Vcc = 9V
+//double upper_bound = 2500.0;//Vcc = 5V
 void set_max(double *freq)
 {
-  *freq = 2500;
+  *freq = upper_bound;
 }
 
 void set_min(double *freq){
   *freq = 0;
 }
 
-void increase(double *freq)
-{
-  if(*freq > 2400) set_max(freq);
-  else *freq += 100;
-}
-void decrease(double *freq)
-{
-  if(*freq < 100) set_min(freq);
-  else *freq -= 100;
-}
 void increase_by(double *freq, double inc)
 {
-  if(*freq + inc > 2500) set_max(freq);
-  else if(*freq + inc < 0) set_min(freq);
-  else *freq += inc;
+  if (*freq == 0.0 && inc > 0.0) {
+    *freq = lower_bound;
+  } else {
+    if(*freq + inc > upper_bound) set_max(freq);
+    else if(*freq + inc < lower_bound) set_min(freq);
+    else *freq += inc;
+  }
 }
 
 void manual_input(double *freq_l, double *freq_r, int *polarity)
