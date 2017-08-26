@@ -47,6 +47,13 @@ volatile unsigned *gpio;
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 #define NSLEEPDELAY 65129
+#define PIN_FREQ_POLL 4
+#define PIN_PROX 3
+#define PIN_FREQ_L 17
+#define PIN_FREQ_R 18
+#define PIN_DIR_L 22
+#define PIN_DIR_R 27
+
 struct arg_struct
 {
   double *freq;
@@ -101,14 +108,14 @@ int main(int argc, char **argv)
 
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
   args_l->freq = freq_l;
-  args_l->g = 17;
+  args_l->g = PIN_FREQ_L;
 
   struct arg_struct *args_r = malloc(sizeof(struct arg_struct));
   args_r->freq = freq_r;
-  args_r->g = 18;
+  args_r->g = PIN_FREQ_R;
 
   struct poll_arg_struct *args_poll = malloc(sizeof(struct poll_arg_struct));
-  args_poll->g = 4;
+  args_poll->g = PIN_FREQ_POLL;
   args_poll->measured_freq = measured_freq;
   args_poll->sleep_duration = sleep_duration;
 
@@ -116,22 +123,22 @@ int main(int argc, char **argv)
   iret1 = pthread_create( &motor_l, NULL, toggle_pins, (void *)args_l);
   if(iret1)
   {
-	  fprintf(stderr,"Error - pthread_create() return code: %d\n",iret1);
-	  exit(EXIT_FAILURE);
+    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret1);
+    exit(EXIT_FAILURE);
   }
 
   iret2 = pthread_create( &motor_r, NULL, toggle_pins, (void *)args_r);
   if(iret2)
   {
-	  fprintf(stderr,"Error - pthread_create() return code: %d\n",iret2);
-	  exit(EXIT_FAILURE);
+    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret2);
+    exit(EXIT_FAILURE);
   }
 
   iret3 = pthread_create( &poll_thread, NULL, poll_pin, (void *)args_poll);
   if(iret3)
   {
-	  fprintf(stderr,"Error - pthread_create() return code: %d\n",iret3);
-	  exit(EXIT_FAILURE);
+    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret3);
+    exit(EXIT_FAILURE);
   }
 
   printf("pthread_create() for thread 1 returns: %d\n",iret1);
@@ -149,142 +156,191 @@ int main(int argc, char **argv)
   {
     char l_text[10];
     char r_text[10];
+    char l_dir_char, r_dir_char;
     char status_text[50];
+
+    if (CHECK_BIT(polarity,0)) l_dir_char = 'R';
+    else l_dir_char = 'F';
+    if (CHECK_BIT(polarity,1)) r_dir_char = 'R';
+    else r_dir_char = 'F';
     strncpy(l_text,"OFF",10);
     strncpy(r_text,"OFF",10);
-    if (*freq_l >= 0) snprintf(l_text, 10, "%lf", *freq_l);
-    if (*freq_r >= 0) snprintf(r_text, 10, "%lf", *freq_r);
+    if (*freq_l >= 0) snprintf(l_text, 10, "%lf %c", *freq_l, l_dir_char);
+    if (*freq_r >= 0) snprintf(r_text, 10, "%lf %c", *freq_r, r_dir_char);
     snprintf(status_text, 50, "%lf", *measured_freq);
 
-    mvprintw(0,0,"LEFT %-10s   RIGHT %s  POLARITY %d READ FREQ %s\n",l_text,r_text,polarity,status_text);
+    mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s\n",l_text,r_text,status_text);
     refresh();
 
-    set_pin(22,CHECK_BIT(polarity,0));
-    set_pin(27,CHECK_BIT(polarity,1));
+    set_pin(PIN_DIR_L,CHECK_BIT(polarity,0));
+    set_pin(PIN_DIR_R,CHECK_BIT(polarity,1));
 
     move(1,0);
     int c = getch();
     if (mode == 0)
     {
       switch(c) {
-	case '3':
-	  printw("%c: Left motor max speed\n",c);
-	  set_max(freq_l);
-	  break;
-	case 'e':
-	  printw("%c: Left motor increase speed\n",c);
-	  increase_by(freq_l,100.0);
-	  break;
-	case 'd':
-	  printw("%c: Left motor decrease speed\n",c);
-	  increase_by(freq_l,-100.0);
-	  break;
-	case 'c':
-	  printw("%c: Left motor min speed\n",c);
-	  set_min(freq_l);
-	  break;
-	case '4':
-	  printw("%c: Right motor max speed\n",c);
-	  set_max(freq_r);
-	  break;
-	case 'r':
-	  printw("%c: Right motor increase speed\n",c);
-	  increase_by(freq_r, 100.0);
-	  break;
-	case 'f':
-	  printw("%c: Right motor decrease speed\n",c);
-	  increase_by(freq_r, -100.0);
-	  break;
-	case 'v':
-	  printw("%c: Right motor min speed\n",c);
-	  set_min(freq_r);
-	  break;
-	case ' ':
-	  endwin();
-	  manual_input(freq_l, freq_r, &polarity);
-	  initscr();
-	  break;
-	case '`':
-	  endwin();
-	  *freq_l = -1;
-	  *freq_r = -1;
-	  *sleep_duration = -1;
-	  return 0;
-	case 'p':
-	  /*struct timespec ts_start;
-	    struct timespec ts_test;
-	    struct timespec ts_end;
-	    long elapsed;
-	    int k;
-	  //500ns just empty code
-	  //Av. 500ns - 700ns GET_GPIO(4)
-	  //Av. 1200ns measure time; GET_GPIO; measure time
-	  clock_gettime(CLOCK_MONOTONIC, &ts_start);
+        case '3':
+          printw("%c: Left motor max speed\n",c);
+          set_max(freq_l);
+          break;
+        case 'e':
+          printw("%c: Left motor increase speed\n",c);
+          increase_by(freq_l,100.0);
+          break;
+        case 'd':
+          printw("%c: Left motor decrease speed\n",c);
+          increase_by(freq_l,-100.0);
+          break;
+        case 'c':
+          printw("%c: Left motor min speed\n",c);
+          set_min(freq_l);
+          break;
+        case '4':
+          printw("%c: Right motor max speed\n",c);
+          set_max(freq_r);
+          break;
+        case 'r':
+          printw("%c: Right motor increase speed\n",c);
+          increase_by(freq_r, 100.0);
+          break;
+        case 'f':
+          printw("%c: Right motor decrease speed\n",c);
+          increase_by(freq_r, -100.0);
+          break;
+        case 'v':
+          printw("%c: Right motor min speed\n",c);
+          set_min(freq_r);
+          break;
+        case 'w':
+          printw("%c: Left motor forward\n",c);
+          polarity &= ~(1 << 0);//Clear bit 0
+          break;
+        case 's':
+          printw("%c: Left motor reverse\n",c);
+          polarity |= 1 << 0;//Set bit 0
+          break;
+        case 't':
+          printw("%c: Right motor forward\n",c);
+          polarity &= ~(1 << 1);//Clear bit 0
+          break;
+        case 'g':
+          printw("%c: Right motor reverse\n",c);
+          polarity |= 1 << 1;//Set bit 0
+          break;
+        case ' ':
+          endwin();
+          manual_input(freq_l, freq_r, &polarity);
+          initscr();
+          break;
+        case '`':
+          endwin();
+          *freq_l = -1;
+          *freq_r = -1;
+          *sleep_duration = -1;
+          return 0;
+        case 'p':
+          /*struct timespec ts_start;
+            struct timespec ts_test;
+            struct timespec ts_end;
+            long elapsed;
+            int k;
+          //500ns just empty code
+          //Av. 500ns - 700ns GET_GPIO(4)
+          //Av. 1200ns measure time; GET_GPIO; measure time
+          clock_gettime(CLOCK_MONOTONIC, &ts_start);
 
-	  clock_gettime(CLOCK_MONOTONIC, &ts_test);
-	  i = GET_GPIO(4);
-	  clock_gettime(CLOCK_MONOTONIC, &ts_test);
+          clock_gettime(CLOCK_MONOTONIC, &ts_test);
+          i = GET_GPIO(4);
+          clock_gettime(CLOCK_MONOTONIC, &ts_test);
 
-	  clock_gettime(CLOCK_MONOTONIC, &ts_end);
-	  timespec_diff(&ts_start, &ts_end, &elapsed);
-	  if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
-	  else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
-	  //for(int i = 0;i < 10000;i++)
-	  break;
-	case 9://Tab
-	  mode = 1;
-	  timeout(100);
-	  break;
-	default://65-68 up dn right left
-	  printw("%d %c invalid\n",c,c);
-    }
+          clock_gettime(CLOCK_MONOTONIC, &ts_end);
+          timespec_diff(&ts_start, &ts_end, &elapsed);
+          if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
+          else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
+          //for(int i = 0;i < 10000;i++)
+          break;
+        case 9://Tab
+          mode = 1;
+          timeout(100);
+          break;
+        default://65-68 up dn right left
+          printw("%d %c invalid\n",c,c);
+       }
     } else {
       switch (c) {
-	case 65:
-	  printw("Accelerating L, R\n");
-	  increase_by(freq_l, 50.0);
-	  increase_by(freq_r, 50.0);
-	  break;
-	case 66:
-	  printw("Slowing down L, R\n");
-	  increase_by(freq_l, -250.0);
-	  increase_by(freq_r, -250.0);
-	  break;
-	case 67:
-	  printw("Accelerating    R\n");
-	  increase_by(freq_r, 50.0);
-	  break;
-	case 68:
-	  printw("Accelerating L\n");
-	  increase_by(freq_l, 50.0);
-	  break;
-	case 9://Tab
-	  mode = 0;
-	  timeout(-1);
-	  break;
-	case ',':
-	  timeout(-1);
-	  break;
-	case '.':
-	  timeout(100);
-	  break;
-	case ' ':
-	  set_min(freq_l);
-	  set_min(freq_r);
-	  break;
-	case '`':
-	  endwin();
-	  *freq_l = -1;
-	  *freq_r = -1;
-	  *sleep_duration = -1;
-	  return 0;
-	case 27:
-	case 91:
-	  break;
-	default:
-	  printw("Slowing down\n");
+        case 65:
+          if (~(CHECK_BIT(polarity,0) | CHECK_BIT(polarity,1)))
+          {//Both forward - accelerate
+            printw("Accelerating L, R\n");
+            increase_by(freq_l, 50.0);
+            increase_by(freq_r, 50.0);
+          } else {//Both reverse or different dir.
+            if (*freq_l > 0 | *freq_r > 0)
+            {//Slow down
+              printw("Slowing down L, R\n");
+              increase_by(freq_l, -250.0);
+              increase_by(freq_r, -250.0);
+            } else {//Set direction to forward
+              polarity &= ~(1 << 0);//Clear bit 0
+              polarity &= ~(1 << 1);//Clear bit 1
+            }
+          }
+          break;
+        case 66:
+          if (CHECK_BIT(polarity,0) & CHECK_BIT(polarity,1))
+          {//Both reverse /- accelerate
+            printw("Accelerating L, R\n");
+            increase_by(freq_l, 50.0);
+            increase_by(freq_r, 50.0);
+
+          } else {//Both forward or different dir
+            if (*freq_l > 0 | *freq_r > 0)
+            {//Slow down
+              printw("Slowing down L, R\n");
+              increase_by(freq_l, -250.0);
+              increase_by(freq_r, -250.0);
+            } else {//Set direction to reverse
+              polarity |= 1 << 0;//Set bit 0
+              polarity |= 1 << 1;//Set bit 1
+            }
+          break;
+        // Accelerate no matter what direction
+        case 67:
+          printw("Accelerating    R\n");
+          increase_by(freq_r, 50.0);
+          break;
+        case 68:
+          printw("Accelerating L\n");
+          increase_by(freq_l, 50.0);
+          break;
+        case 9://Tab
+          mode = 0;
+          timeout(-1);
+          break;
+        case ',':
+          timeout(-1);
+          break;
+        case '.':
+          timeout(100);
+          break;
+        case ' ':
+          set_min(freq_l);
+          set_min(freq_r);
+          break;
+        case '`':
+          endwin();
+          *freq_l = -1;
+          *freq_r = -1;
+          *sleep_duration = -1;
+          return 0;
+        case 27:
+        case 91:
+          break;
+        default:
+          printw("Slowing down\n");
           increase_by(freq_l, -50.0);
-	  increase_by(freq_r, -50.0);
+          increase_by(freq_r, -50.0);
       }
     }
   }
