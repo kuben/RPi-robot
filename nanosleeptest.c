@@ -7,11 +7,17 @@
 #include <pthread.h>
 #include <string.h>
 #include <curses.h>
+#include <math.h>
 
 #define MAX 1000
 
 int main(int argc, char **argv)
 {
+  double d1 = 0.0;
+  double d2 = -fabs(d1);
+  printf("%lf %lf\n",d1,d2);
+  printf("%u %u\n",signbit(d1),signbit(d2));
+  return;
   int i;
   long sleeps[MAX];
   struct timespec time[MAX];

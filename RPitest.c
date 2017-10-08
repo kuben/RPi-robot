@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <curses.h>
+#include <math.h>
 
 #define PAGE_SIZE (4*1024)
 #define BLOCK_SIZE (4*1024)
@@ -49,15 +50,17 @@ volatile unsigned *gpio;
 #define NSLEEPDELAY 65129
 #define PIN_FREQ_POLL 4
 #define PIN_PROX 3
-#define PIN_FREQ_L 17
-#define PIN_FREQ_R 18
-#define PIN_DIR_L 22
-#define PIN_DIR_R 27
+#define PIN_L_A 17
+#define PIN_L_B 18
+#define PIN_R_A 22
+#define PIN_R_B 27
 
 struct arg_struct
 {
-  double *freq;
-  int g;
+  double *duty_cycle;//From 0.0 to 1.0 for A. From -0.0 to -1.0 for B
+  int g_A;
+  int g_B;
+  int *running;
 };
 
 struct poll_arg_struct
@@ -67,14 +70,15 @@ struct poll_arg_struct
   long *sleep_duration;
 };
 
-void set_max(double *freq);
-void set_min(double *freq);
-void increase_by(double *freq, double inc);
+void set_max(double *duty_cycle);
+void set_min(double *duty_cycle);
+void increase_by(double *duty_cycle, double inc);
 
 
 void setup_io();
-void manual_input(double *freq_l, double *freq_r, int *polarity);
+void manual_input(double *duty_l, double *duty_r);
 void timespec_diff(struct timespec *start, struct timespec *stop, long *result);
+int format_motor_text(char *text, int length, double *duty_cycle);
 void set_pin(int g,int state);
 void *toggle_pins(void * arguments);
 int poll_pin_n_waves(int g, int n, double *return_freq, int max_loop_iters);
@@ -93,26 +97,32 @@ int main(int argc, char **argv)
   // Set up gpi pointer for direct register access
   setup_io();
 
+  int *running = malloc(sizeof(int));
+  *running = 1;
+
   pthread_t motor_l, motor_r, poll_thread;
   int iret1, iret2, iret3;
-  double *freq_l = malloc(sizeof(double));
-  double *freq_r = malloc(sizeof(double));
+  double *duty_l = malloc(sizeof(double));
+  double *duty_r = malloc(sizeof(double));
   double *measured_freq = malloc(sizeof(double));
   long *sleep_duration = malloc(sizeof(long));
 
-  *freq_l = (double){atof(argv[1])};
-  *freq_r = (double){atof(argv[2])};
+  *duty_l = (double){atof(argv[1])};
+  *duty_r = (double){atof(argv[2])};
   *sleep_duration = 900000000;
   *measured_freq = 0.0;
-  int polarity = 0;
 
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
-  args_l->freq = freq_l;
-  args_l->g = PIN_FREQ_L;
+  args_l->duty_cycle = duty_l;
+  args_l->g_A = PIN_L_A;
+  args_l->g_B = PIN_L_B;
+  args_l->running = running;
 
   struct arg_struct *args_r = malloc(sizeof(struct arg_struct));
-  args_r->freq = freq_r;
-  args_r->g = PIN_FREQ_R;
+  args_r->duty_cycle = duty_r;
+  args_r->g_A = PIN_R_A;
+  args_r->g_B = PIN_R_B;
+  args_r->running = running;
 
   struct poll_arg_struct *args_poll = malloc(sizeof(struct poll_arg_struct));
   args_poll->g = PIN_FREQ_POLL;
@@ -152,28 +162,18 @@ int main(int argc, char **argv)
   timeout(-1);
   int mode = 0;//0 - Increments, 1 - Hold for speed
 
-  while (*freq_l >= 0 || *freq_r >= 0)
+  while (*running)
   {
     char l_text[10];
     char r_text[10];
-    char l_dir_char, r_dir_char;
     char status_text[50];
 
-    if (CHECK_BIT(polarity,0)) l_dir_char = 'R';
-    else l_dir_char = 'F';
-    if (CHECK_BIT(polarity,1)) r_dir_char = 'R';
-    else r_dir_char = 'F';
-    strncpy(l_text,"OFF",10);
-    strncpy(r_text,"OFF",10);
-    if (*freq_l >= 0) snprintf(l_text, 10, "%lf %c", *freq_l, l_dir_char);
-    if (*freq_r >= 0) snprintf(r_text, 10, "%lf %c", *freq_r, r_dir_char);
+    format_motor_text(l_text,sizeof(l_text),duty_l);
+    format_motor_text(r_text,sizeof(r_text),duty_r);
     snprintf(status_text, 50, "%lf", *measured_freq);
 
     mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s\n",l_text,r_text,status_text);
     refresh();
-
-    set_pin(PIN_DIR_L,CHECK_BIT(polarity,0));
-    set_pin(PIN_DIR_R,CHECK_BIT(polarity,1));
 
     move(1,0);
     int c = getch();
@@ -182,61 +182,60 @@ int main(int argc, char **argv)
       switch(c) {
         case '3':
           printw("%c: Left motor max speed\n",c);
-          set_max(freq_l);
+          set_max(duty_l);
           break;
         case 'e':
           printw("%c: Left motor increase speed\n",c);
-          increase_by(freq_l,100.0);
+          increase_by(duty_l,0.1);
           break;
         case 'd':
           printw("%c: Left motor decrease speed\n",c);
-          increase_by(freq_l,-100.0);
+          increase_by(duty_l,-0.1);
           break;
         case 'c':
           printw("%c: Left motor min speed\n",c);
-          set_min(freq_l);
+          set_min(duty_l);
           break;
         case '4':
           printw("%c: Right motor max speed\n",c);
-          set_max(freq_r);
+          set_max(duty_r);
           break;
         case 'r':
           printw("%c: Right motor increase speed\n",c);
-          increase_by(freq_r, 100.0);
+          increase_by(duty_r,0.1);
           break;
         case 'f':
           printw("%c: Right motor decrease speed\n",c);
-          increase_by(freq_r, -100.0);
+          increase_by(duty_r,-0.1);
           break;
         case 'v':
           printw("%c: Right motor min speed\n",c);
-          set_min(freq_r);
+          set_min(duty_r);
           break;
         case 'w':
           printw("%c: Left motor forward\n",c);
-          polarity &= ~(1 << 0);//Clear bit 0
+	  *duty_l = fabs(*duty_l);
           break;
         case 's':
           printw("%c: Left motor reverse\n",c);
-          polarity |= 1 << 0;//Set bit 0
+	  *duty_l = -fabs(*duty_l);
           break;
         case 't':
           printw("%c: Right motor forward\n",c);
-          polarity &= ~(1 << 1);//Clear bit 0
+	  *duty_r = fabs(*duty_r);
           break;
         case 'g':
           printw("%c: Right motor reverse\n",c);
-          polarity |= 1 << 1;//Set bit 0
+	  *duty_r = -fabs(*duty_r);
           break;
         case ' ':
           endwin();
-          manual_input(freq_l, freq_r, &polarity);
+          manual_input(duty_l, duty_r);
           initscr();
           break;
         case '`':
           endwin();
-          *freq_l = -1;
-          *freq_r = -1;
+	  *running = 0;
           *sleep_duration = -1;
           return 0;
         case 'p':
@@ -270,49 +269,49 @@ int main(int argc, char **argv)
     } else {
       switch (c) {
         case 65:
-          if (~(CHECK_BIT(polarity,0) | CHECK_BIT(polarity,1)))
+          if (!(signbit(*duty_r) | signbit(*duty_l)))
           {//Both forward - accelerate
             printw("Accelerating L, R\n");
-            increase_by(freq_l, 50.0);
-            increase_by(freq_r, 50.0);
+            increase_by(duty_l, 0.05);
+            increase_by(duty_r, 0.05);
           } else {//Both reverse or different dir.
-            if (*freq_l > 0 | *freq_r > 0)
+            if ((*duty_l != 0.0) | (*duty_r != 0.0))
             {//Slow down
               printw("Slowing down L, R\n");
-              increase_by(freq_l, -250.0);
-              increase_by(freq_r, -250.0);
+              increase_by(duty_l, -0.2);
+              increase_by(duty_r, -0.2);
             } else {//Set direction to forward
-              polarity &= ~(1 << 0);//Clear bit 0
-              polarity &= ~(1 << 1);//Clear bit 1
+	      *duty_l = fabs(*duty_l);
+	      *duty_r = fabs(*duty_r);
             }
           }
           break;
         case 66:
-          if (CHECK_BIT(polarity,0) & CHECK_BIT(polarity,1))
+          if (signbit(*duty_r) & signbit(*duty_l))
           {//Both reverse /- accelerate
             printw("Accelerating L, R\n");
-            increase_by(freq_l, 50.0);
-            increase_by(freq_r, 50.0);
-
+            increase_by(duty_l, 0.05);
+            increase_by(duty_r, 0.05);
           } else {//Both forward or different dir
-            if (*freq_l > 0 | *freq_r > 0)
+            if ((*duty_l != 0.0) | (*duty_r != 0.0))
             {//Slow down
               printw("Slowing down L, R\n");
-              increase_by(freq_l, -250.0);
-              increase_by(freq_r, -250.0);
+              increase_by(duty_l, -0.2);
+              increase_by(duty_r, -0.2);
             } else {//Set direction to reverse
-              polarity |= 1 << 0;//Set bit 0
-              polarity |= 1 << 1;//Set bit 1
+	      *duty_l = -fabs(*duty_l);
+	      *duty_r = -fabs(*duty_r);
             }
+	  }
           break;
         // Accelerate no matter what direction
         case 67:
           printw("Accelerating    R\n");
-          increase_by(freq_r, 50.0);
+          increase_by(duty_r, 0.05);
           break;
         case 68:
           printw("Accelerating L\n");
-          increase_by(freq_l, 50.0);
+          increase_by(duty_l, 0.05);
           break;
         case 9://Tab
           mode = 0;
@@ -325,13 +324,12 @@ int main(int argc, char **argv)
           timeout(100);
           break;
         case ' ':
-          set_min(freq_l);
-          set_min(freq_r);
+          set_min(duty_l);
+          set_min(duty_r);
           break;
         case '`':
           endwin();
-          *freq_l = -1;
-          *freq_r = -1;
+          *running = -1;
           *sleep_duration = -1;
           return 0;
         case 27:
@@ -339,8 +337,8 @@ int main(int argc, char **argv)
           break;
         default:
           printw("Slowing down\n");
-          increase_by(freq_l, -50.0);
-          increase_by(freq_r, -50.0);
+          increase_by(duty_l, -0.05);
+          increase_by(duty_r, -0.05);
       }
     }
   }
@@ -349,8 +347,8 @@ int main(int argc, char **argv)
   pthread_join( motor_l, NULL);
   pthread_join( motor_r, NULL);
 
-  free(freq_l);
-  free(freq_r);
+  free(duty_l);
+  free(duty_r);
   free(args_l);
   free(args_r);
 
@@ -435,35 +433,42 @@ void *poll_pin(void * arguments)
 void* toggle_pins(void *arguments)
 {
   struct arg_struct *args = (struct arg_struct *)arguments;
-  int g = args->g;
-  double *freq = args->freq;
-  double last_freq;
+  int *running = args->running;
+  int g_A = args->g_A;
+  int g_B = args->g_B;
+  int g;
+  double *duty_cycle= args->duty_cycle;
+  double freq = 100;//[Hertz]
+  double last_dc;
+  long period = (long)(1000000000/freq);
   //printf("%d : Freq: %f\n",g,*freq);
-  INP_GPIO(g); // must use INP_GPIO before we can use OUT_GPIO
-  OUT_GPIO(g);
-  while (*freq >= 0)
+  INP_GPIO(g_A); // must use INP_GPIO before we can use OUT_GPIO
+  OUT_GPIO(g_A);
+  INP_GPIO(g_B);
+  OUT_GPIO(g_B);
+  while (*running)
   {
-    last_freq = *freq;//So we only have to do division when freq changes
-    if (last_freq == 0)//Special case, don'w want div by 0
+    last_dc = *duty_cycle;//So we only have to do division when freq changes
+    if (last_dc == 0)//Motor still, outputs LOW
     {
-      GPIO_CLR = 1<<g;//Make sure output is always LOW
+      GPIO_CLR = 1<<g_A;//Make sure output is always LOW
+      GPIO_CLR = 1<<g_B;//Make sure output is always LOW
       nanosleep((const struct timespec[]){{0, 1000000}}, NULL);//Sleep for 1ms before checking again
     } else {
-      long halfperiod = (long)(500000000/ last_freq);
-      long period = 2*halfperiod;
-
+      g = last_dc > 0 ? g_A : g_B;//toggle A if forward
+      long time_HIGH = (long)(period*fabs(last_dc));
       long elapsed;
       struct timespec ts_start;
       struct timespec ts_mid;
       struct timespec ts_end;
       clock_gettime(CLOCK_MONOTONIC, &ts_end);
-      while (last_freq == *freq)
+      while (last_dc == *duty_cycle)
       {
         GPIO_SET = 1<<g;
         clock_gettime(CLOCK_MONOTONIC, &ts_start);
         timespec_diff(&ts_end, &ts_start, &elapsed);
 	//nanosleep always 60us too long
-        nanosleep((const struct timespec[]){{0, halfperiod-elapsed-NSLEEPDELAY}}, NULL);
+        nanosleep((const struct timespec[]){{0, time_HIGH-elapsed-NSLEEPDELAY}}, NULL);
         GPIO_CLR = 1<<g;
         clock_gettime(CLOCK_MONOTONIC, &ts_mid);
         timespec_diff(&ts_end, &ts_mid, &elapsed);
@@ -508,43 +513,35 @@ void setup_io()
 
 
 } // setup_io
-double lower_bound = 400.0;
-double upper_bound = 900.0;//Vcc = 9V
-//double upper_bound = 1200.0;//Vcc = 9V
-//double upper_bound = 2500.0;//Vcc = 5V
-void set_max(double *freq)
+void set_max(double *duty_cycle)
 {
-  *freq = upper_bound;
+  *duty_cycle = signbit(*duty_cycle) ? -1.0 : 1.0;
 }
 
-void set_min(double *freq){
-  *freq = 0;
+void set_min(double *duty_cycle){
+  *duty_cycle = signbit(*duty_cycle) ? -0.0 : 0.0;
 }
 
-void increase_by(double *freq, double inc)
+void increase_by(double *duty_cycle, double inc)
 {
-  if (*freq == 0.0 && inc > 0.0) {
-    *freq = lower_bound;
-  } else {
-    if(*freq + inc > upper_bound) set_max(freq);
-    else if(*freq + inc < lower_bound) set_min(freq);
-    else *freq += inc;
+  if(fabs(*duty_cycle) + inc >= 1.0) set_max(duty_cycle);
+  else if(fabs(*duty_cycle) + inc <= 0.0) set_min(duty_cycle);
+  else
+  {
+    double dc_abs = fabs(*duty_cycle) + inc;
+    *duty_cycle = signbit(*duty_cycle) ? -dc_abs : dc_abs;
   }
 }
 
-void manual_input(double *freq_l, double *freq_r, int *polarity)
+void manual_input(double *duty_l, double *duty_r)
 {
-  printf("Set freqency of left motor: ");
+  printf("Set duty cycle of left motor: ");
   fflush(stdout);
-  scanf("%lf",freq_l);
+  scanf("%lf",duty_l);
 
-  printf("Set freqency of right motor: ");
+  printf("Set duty cycle of right motor: ");
   fflush(stdout);
-  scanf("%lf",freq_r);
-  printf("Set polarity: ");
-  scanf("%d", polarity);
-
-
+  scanf("%lf",duty_r);
 }
 void timespec_diff(struct timespec *start, struct timespec *stop, long *nsec)
 {
@@ -555,4 +552,17 @@ void timespec_diff(struct timespec *start, struct timespec *stop, long *nsec)
   }
 
   return;
+}
+
+int format_motor_text(char *text, int length, double *duty_cycle)
+{
+  if (length < 4) return 1;
+
+  char dir_char = 'F';
+  if (signbit(*duty_cycle)) dir_char = 'R';
+  
+  strncpy(text,"OFF",length);
+  snprintf(text, length-3, "%lf", *duty_cycle);//Leave space at end for at least 3
+  snprintf(text + strlen(text) - 1, 3, " %c", dir_char);//-1 to overwrite trailing null
+  return 0;
 }
