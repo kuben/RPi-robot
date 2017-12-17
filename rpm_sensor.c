@@ -19,7 +19,7 @@ int poll_sensor(int pin_read, int pin_write, int last_state, long *sleep_duratio
   return -1;//Too many loop iterations
 }
 
-int read_rpm(void *arguments)
+void* read_rpm(void *arguments)
 {
   struct rpm_arg_struct *args = (struct rpm_arg_struct *)arguments;
   int pin_read = args->pin_read;
@@ -34,7 +34,7 @@ int read_rpm(void *arguments)
   struct timespec ts_now;
   int last_state = 0;
   //diff_array saves times in msec
-  long *diff_array[DIFF_LENGTH] = {0};
+  long diff_array[DIFF_LENGTH] = {0};
   long diff = 0;
   clock_gettime(CLOCK_MONOTONIC, &ts_last);
   clock_gettime(CLOCK_MONOTONIC, &ts_now);
@@ -46,13 +46,13 @@ int read_rpm(void *arguments)
       ts_last = ts_now;//Only write over the old value on new pulse
       clock_gettime(CLOCK_MONOTONIC, &ts_now);
       timespec_diff_ms(&ts_last, &ts_now, &diff);//Put a new value in the array
-      //printf("diff {%ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld...\n", diff_array[0], diff_array[1], diff_array[2], diff_array[3], diff_array[4], diff_array[5], diff_array[6], diff_array[7], diff_array[8], diff_array[9], diff_array[10], diff_array[11], diff_array[12], diff_array[13], diff_array[14], diff_array[15], diff_array[16], diff_array[17], diff_array[18], diff_array[19], diff_array[20], diff_array[21], diff_array[22] );
       shift_into_array(diff_array,DIFF_LENGTH,diff);
       last_state = !last_state;
     } else if(res == -1) {
       clock_gettime(CLOCK_MONOTONIC, &ts_now);//'Last' still indicates last pulse
       timespec_diff_ms(&ts_last, &ts_now, diff_array);//This overwrites the first value in the array
     }
+      snprintf(debug_text, 70, "diff {%ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld...\n", diff_array[0], diff_array[1], diff_array[2], diff_array[3], diff_array[4], diff_array[5], diff_array[6], diff_array[7], diff_array[8], diff_array[9], diff_array[10], diff_array[11], diff_array[12], diff_array[13], diff_array[14], diff_array[15], diff_array[16], diff_array[17], diff_array[18], diff_array[19], diff_array[20], diff_array[21], diff_array[22] );
     *rpm = rpm_from_diffarray(diff_array,DIFF_LENGTH);
     
     adjust_sleep_dur(sleep_duration, rpm);

@@ -14,6 +14,7 @@ void *gpio_map;
 // I/O access
 volatile unsigned *gpio;
 
+extern char debug_text[100];
 
 // GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
 #define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))

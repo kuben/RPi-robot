@@ -1,4 +1,4 @@
-CFLAGS = -Wall -lncurses -pthread -O3
+CFLAGS = -Wall -lncurses -pthread -O3 -Wno-format-truncation
 CC = gcc
 
 default: all

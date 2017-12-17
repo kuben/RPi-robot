@@ -56,6 +56,9 @@ void *toggle_pins(void * arguments);
 int poll_pin_n_waves(int g, int n, double *return_freq, int max_loop_iters);
 void *poll_pin(void * arguments);
 
+void keypress_mode_stepwise(char c);
+char debug_text[100] = { 0 };
+
 int main(int argc, char **argv)
 {
   // Set up gpi pointer for direct register access
@@ -126,104 +129,14 @@ int main(int argc, char **argv)
 
     mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s\n",l_text,r_text,status_text);
     mvprintw(1,0,"     %-10s         %s\n",l_text,r_text);
+    mvprintw(2,0,"%-50s\n",debug_text);
     refresh();
 
-    move(2,0);
+    move(3,0);
     int c = getch();
     if (mode == 0)
     {
-      switch(c) {
-        case '3':
-          printw("%c: Left motor max speed\n",c);
-          set_max(duty_l);
-          break;
-        case 'e':
-          printw("%c: Left motor increase speed\n",c);
-          increase_by(duty_l,0.1);
-          break;
-        case 'd':
-          printw("%c: Left motor decrease speed\n",c);
-          increase_by(duty_l,-0.1);
-          break;
-        case 'c':
-          printw("%c: Left motor min speed\n",c);
-          set_min(duty_l);
-          break;
-        case '4':
-          printw("%c: Right motor max speed\n",c);
-          set_max(duty_r);
-          break;
-        case 'r':
-          printw("%c: Right motor increase speed\n",c);
-          increase_by(duty_r,0.1);
-          break;
-        case 'f':
-          printw("%c: Right motor decrease speed\n",c);
-          increase_by(duty_r,-0.1);
-          break;
-        case 'v':
-          printw("%c: Right motor min speed\n",c);
-          set_min(duty_r);
-          break;
-        case 'w':
-          printw("%c: Left motor forward\n",c);
-	  *duty_l = fabs(*duty_l);
-          break;
-        case 's':
-          printw("%c: Left motor reverse\n",c);
-	  *duty_l = -fabs(*duty_l);
-          break;
-        case 't':
-          printw("%c: Right motor forward\n",c);
-	  *duty_r = fabs(*duty_r);
-          break;
-        case 'g':
-          printw("%c: Right motor reverse\n",c);
-	  *duty_r = -fabs(*duty_r);
-          break;
-        case ' ':
-          endwin();
-          manual_input(duty_l, duty_r);
-          initscr();
-          break;
-        case '`':
-          endwin();
-	  *running = 0;
-          *sleep_duration = -1;
-          *rpm_sleep_duration = -1;
-          return 0;
-        case 'p':
-          /*struct timespec ts_start;
-            struct timespec ts_test;
-            struct timespec ts_end;
-            long elapsed;
-            int k;
-          //500ns just empty code
-          //Av. 500ns - 700ns GET_GPIO(4)
-          //Av. 1200ns measure time; GET_GPIO; measure time
-          clock_gettime(CLOCK_MONOTONIC, &ts_start);
-
-          clock_gettime(CLOCK_MONOTONIC, &ts_test);
-          i = GET_GPIO(4);
-          clock_gettime(CLOCK_MONOTONIC, &ts_test);
-
-          clock_gettime(CLOCK_MONOTONIC, &ts_end);
-          timespec_diff(&ts_start, &ts_end, &elapsed);
-          if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
-          else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
-          //for(int i = 0;i < 10000;i++)
-          break;
-        case 9://Tab
-          mode = 1;
-          timeout(100);
-          break;
-        case 'l':
-          ;
-          printw("gpio %d RPM %lf\n",GET_GPIO(PIN_RPM_RR),*rpm_r);
-          break;
-        default://65-68 up dn right left
-          printw("%d %c invalid\n",c,c);
-       }
+      keypress_mode_stepwise(c);
     } else {
       switch (c) {
         case 65:
@@ -326,6 +239,102 @@ int main(int argc, char **argv)
 
 } // main
 
+//Choose apropriate action depenting on mode and key pressed
+void keypress_mode_stepwise(char c)
+{
+  switch(c) {
+    case '3':
+      printw("%c: Left motor max speed\n",c);
+      set_max(duty_l);
+      break;
+    case 'e':
+      printw("%c: Left motor increase speed\n",c);
+      increase_by(duty_l,0.1);
+      break;
+    case 'd':
+      printw("%c: Left motor decrease speed\n",c);
+      increase_by(duty_l,-0.1);
+      break;
+    case 'c':
+      printw("%c: Left motor min speed\n",c);
+      set_min(duty_l);
+      break;
+    case '4':
+      printw("%c: Right motor max speed\n",c);
+      set_max(duty_r);
+      break;
+    case 'r':
+      printw("%c: Right motor increase speed\n",c);
+      increase_by(duty_r,0.1);
+      break;
+    case 'f':
+      printw("%c: Right motor decrease speed\n",c);
+      increase_by(duty_r,-0.1);
+      break;
+    case 'v':
+      printw("%c: Right motor min speed\n",c);
+      set_min(duty_r);
+      break;
+    case 'w':
+      printw("%c: Left motor forward\n",c);
+      *duty_l = fabs(*duty_l);
+      break;
+    case 's':
+      printw("%c: Left motor reverse\n",c);
+      *duty_l = -fabs(*duty_l);
+      break;
+    case 't':
+      printw("%c: Right motor forward\n",c);
+      *duty_r = fabs(*duty_r);
+      break;
+    case 'g':
+      printw("%c: Right motor reverse\n",c);
+      *duty_r = -fabs(*duty_r);
+      break;
+    case ' ':
+      endwin();
+      manual_input(duty_l, duty_r);
+      initscr();
+      break;
+    case '`':
+      endwin();
+      *running = 0;
+      *sleep_duration = -1;
+      *rpm_sleep_duration = -1;
+      return 0;
+    case 'p':
+      /*struct timespec ts_start;
+	struct timespec ts_test;
+	struct timespec ts_end;
+	long elapsed;
+	int k;
+      //500ns just empty code
+      //Av. 500ns - 700ns GET_GPIO(4)
+      //Av. 1200ns measure time; GET_GPIO; measure time
+      clock_gettime(CLOCK_MONOTONIC, &ts_start);
+
+      clock_gettime(CLOCK_MONOTONIC, &ts_test);
+      i = GET_GPIO(4);
+      clock_gettime(CLOCK_MONOTONIC, &ts_test);
+
+      clock_gettime(CLOCK_MONOTONIC, &ts_end);
+      timespec_diff(&ts_start, &ts_end, &elapsed);
+      if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
+      else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
+      //for(int i = 0;i < 10000;i++)
+      break;
+    case 9://Tab
+      mode = 1;
+      timeout(100);
+      break;
+    case 'l':
+      ;
+      printw("gpio %d RPM %lf\n",GET_GPIO(PIN_RPM_RR),*rpm_r);
+      break;
+    default://65-68 up dn right left
+      printw("%d %c invalid\n",c,c);
+  }
+}
 void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg)
 {
   int iret = pthread_create(thread, NULL, start_routine, arg);
