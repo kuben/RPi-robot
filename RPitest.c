@@ -6,45 +6,16 @@
 //  Revised: 15-Feb-2013
 
 
-// Access from ARM Running Linux
-
-#define BCM2708_PERI_BASE        0x3F000000
-#define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
-
-
 #include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
 #include <time.h>
 #include <pthread.h>
 #include <string.h>
 #include <curses.h>
 #include <math.h>
 
-#define PAGE_SIZE (4*1024)
-#define BLOCK_SIZE (4*1024)
-
-int  mem_fd;
-void *gpio_map;
-
-// I/O access
-volatile unsigned *gpio;
-
-
-// GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
-#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
-#define OUT_GPIO(g) *(gpio+((g)/10)) |=  (1<<(((g)%10)*3))
-#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
-
-#define GPIO_SET *(gpio+7)  // sets   bits which are 1 ignores bits which are 0
-#define GPIO_CLR *(gpio+10) // clears bits which are 1 ignores bits which are 0
-
-#define GET_GPIO(g) (*(gpio+13)&(1<<g)) // 0 if LOW, (1<<g) if HIGH
-
-#define GPIO_PULL *(gpio+37) // Pull up/pull down
-#define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
+#include "utils.h"
+#include "rpm_sensor.h"
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 #define NSLEEPDELAY 65129
@@ -54,6 +25,8 @@ volatile unsigned *gpio;
 #define PIN_L_B 18
 #define PIN_R_A 22
 #define PIN_R_B 27
+#define PIN_RPM_RR 5
+#define PIN_RPM_RW 6
 
 struct arg_struct
 {
@@ -74,23 +47,14 @@ void set_max(double *duty_cycle);
 void set_min(double *duty_cycle);
 void increase_by(double *duty_cycle, double inc);
 
+void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg);
 
-void setup_io();
 void manual_input(double *duty_l, double *duty_r);
-void timespec_diff(struct timespec *start, struct timespec *stop, long *result);
 int format_motor_text(char *text, int length, double *duty_cycle);
 void set_pin(int g,int state);
 void *toggle_pins(void * arguments);
 int poll_pin_n_waves(int g, int n, double *return_freq, int max_loop_iters);
 void *poll_pin(void * arguments);
-
-void printButton(int g)
-{
-  if (GET_GPIO(g)) // !=0 <-> bit is 1 <- port is HIGH=3.3V
-    printw("Button pressed!\n");
-  else // port is LOW=0V
-    printw("Button released!\n");
-}
 
 int main(int argc, char **argv)
 {
@@ -100,60 +64,42 @@ int main(int argc, char **argv)
   int *running = malloc(sizeof(int));
   *running = 1;
 
-  pthread_t motor_l, motor_r, poll_thread;
-  int iret1, iret2, iret3;
   double *duty_l = malloc(sizeof(double));
   double *duty_r = malloc(sizeof(double));
+  double *rpm_r = malloc(sizeof(double));
   double *measured_freq = malloc(sizeof(double));
   long *sleep_duration = malloc(sizeof(long));
+  long *rpm_sleep_duration = malloc(sizeof(long));//Will need one more
 
-  *duty_l = (double){atof(argv[1])};
-  *duty_r = (double){atof(argv[2])};
+  *duty_l = 0.0;//(double){atof(argv[1])};
+  *duty_r = 0.0;//(double){atof(argv[2])};
+  *rpm_r = 0.0;
   *sleep_duration = 900000000;
+  *rpm_sleep_duration = 1000000;//1ms
   *measured_freq = 0.0;
-
+  
+  pthread_t motor_l, motor_r, poll_thread, rpm_thread;
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
-  args_l->duty_cycle = duty_l;
-  args_l->g_A = PIN_L_A;
-  args_l->g_B = PIN_L_B;
-  args_l->running = running;
+  *args_l = (struct arg_struct){.duty_cycle = duty_l, .g_A = PIN_L_A,
+	  .g_B = PIN_L_B, .running = running};
 
   struct arg_struct *args_r = malloc(sizeof(struct arg_struct));
-  args_r->duty_cycle = duty_r;
-  args_r->g_A = PIN_R_A;
-  args_r->g_B = PIN_R_B;
-  args_r->running = running;
+  *args_r = (struct arg_struct){.duty_cycle = duty_r, .g_A = PIN_R_A,
+	  .g_B = PIN_R_B, .running = running};
 
   struct poll_arg_struct *args_poll = malloc(sizeof(struct poll_arg_struct));
-  args_poll->g = PIN_FREQ_POLL;
-  args_poll->measured_freq = measured_freq;
-  args_poll->sleep_duration = sleep_duration;
+  *args_poll = (struct poll_arg_struct){.measured_freq = measured_freq, .g = PIN_FREQ_POLL,
+	  .sleep_duration = sleep_duration};
+
+  struct rpm_arg_struct *args_rpm = malloc(sizeof(struct rpm_arg_struct));
+  *args_rpm = (struct rpm_arg_struct){.rpm = rpm_r, .pin_read = PIN_RPM_RR,
+	  .pin_write = PIN_RPM_RW, .sleep_duration = rpm_sleep_duration};
 
   /* Create independent threads each of which will execute function */
-  iret1 = pthread_create( &motor_l, NULL, toggle_pins, (void *)args_l);
-  if(iret1)
-  {
-    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret1);
-    exit(EXIT_FAILURE);
-  }
-
-  iret2 = pthread_create( &motor_r, NULL, toggle_pins, (void *)args_r);
-  if(iret2)
-  {
-    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret2);
-    exit(EXIT_FAILURE);
-  }
-
-  iret3 = pthread_create( &poll_thread, NULL, poll_pin, (void *)args_poll);
-  if(iret3)
-  {
-    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret3);
-    exit(EXIT_FAILURE);
-  }
-
-  printf("pthread_create() for thread 1 returns: %d\n",iret1);
-  printf("pthread_create() for thread 2 returns: %d\n",iret2);
-  printf("pthread_create() for thread 3 returns: %d\n",iret3);
+  create_thread(&motor_l, toggle_pins, (void *)args_l);
+  create_thread(&motor_r, toggle_pins, (void *)args_r);
+  //create_thread(&poll_thread, poll_pin, (void *)args_poll);
+  create_thread(&rpm_thread, read_rpm, (void *)args_rpm);
 
   /* Initialize Curses*/
   initscr();
@@ -161,6 +107,9 @@ int main(int argc, char **argv)
   raw();
   timeout(-1);
   int mode = 0;//0 - Increments, 1 - Hold for speed
+  INP_GPIO(3);
+  INP_GPIO(2);
+  OUT_GPIO(2);
 
   while (*running)
   {
@@ -171,11 +120,15 @@ int main(int argc, char **argv)
     format_motor_text(l_text,sizeof(l_text),duty_l);
     format_motor_text(r_text,sizeof(r_text),duty_r);
     snprintf(status_text, 50, "%lf", *measured_freq);
+  
+    snprintf(l_text, 10, "%lf", *rpm_r);
+    snprintf(r_text, 10, "%lf", *rpm_r);
 
     mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s\n",l_text,r_text,status_text);
+    mvprintw(1,0,"     %-10s         %s\n",l_text,r_text);
     refresh();
 
-    move(1,0);
+    move(2,0);
     int c = getch();
     if (mode == 0)
     {
@@ -237,6 +190,7 @@ int main(int argc, char **argv)
           endwin();
 	  *running = 0;
           *sleep_duration = -1;
+          *rpm_sleep_duration = -1;
           return 0;
         case 'p':
           /*struct timespec ts_start;
@@ -262,6 +216,10 @@ int main(int argc, char **argv)
         case 9://Tab
           mode = 1;
           timeout(100);
+          break;
+        case 'l':
+          ;
+          printw("gpio %d RPM %lf\n",GET_GPIO(PIN_RPM_RR),*rpm_r);
           break;
         default://65-68 up dn right left
           printw("%d %c invalid\n",c,c);
@@ -331,6 +289,7 @@ int main(int argc, char **argv)
           endwin();
           *running = -1;
           *sleep_duration = -1;
+          *rpm_sleep_duration = -1;
           return 0;
         case 27:
         case 91:
@@ -352,12 +311,32 @@ int main(int argc, char **argv)
   free(args_l);
   free(args_r);
 
+
+  GPIO_CLR = 1<<PIN_FREQ_POLL;
+  GPIO_CLR = 1<<PIN_PROX;
+  GPIO_CLR = 1<<PIN_L_A;
+  GPIO_CLR = 1<<PIN_L_B;
+  GPIO_CLR = 1<<PIN_R_A;
+  GPIO_CLR = 1<<PIN_R_B;
+
   free(gpio_map);
   exit(EXIT_SUCCESS);
 
   return 0;
 
 } // main
+
+void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg)
+{
+  int iret = pthread_create(thread, NULL, start_routine, arg);
+  if (iret)
+  {
+    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret);
+    exit(EXIT_FAILURE);
+  }
+  printf("Created pthread");
+}
+
 void set_pin(int g,int state){
   INP_GPIO(g); // must use INP_GPIO before we can use OUT_GPIO
   OUT_GPIO(g);
@@ -480,39 +459,6 @@ void* toggle_pins(void *arguments)
   return 0;
 }
 
-//
-// Set up a memory regions to access GPIO
-//
-void setup_io()
-{
-   /* open /dev/mem */
-   if ((mem_fd = open("/dev/gpiomem", O_RDWR|O_SYNC) ) < 0) {
-      printf("can't open /dev/gpiomem \n");
-      exit(-1);
-   }
-
-   /* mmap GPIO */
-   gpio_map = mmap(
-      NULL,             //Any adddress in our space will do
-      BLOCK_SIZE,       //Map length
-      PROT_READ|PROT_WRITE,// Enable reading & writting to mapped memory
-      MAP_SHARED,       //Shared with other processes
-      mem_fd,           //File to map
-      GPIO_BASE         //Offset to GPIO peripheral
-   );
-
-   close(mem_fd); //No need to keep mem_fd open after mmap
-
-   if (gpio_map == MAP_FAILED) {
-      printf("mmap error %d\n", (int)gpio_map);//errno also set!
-      exit(-1);
-   }
-
-   // Always use volatile pointer!
-   gpio = (volatile unsigned *)gpio_map;
-
-
-} // setup_io
 void set_max(double *duty_cycle)
 {
   *duty_cycle = signbit(*duty_cycle) ? -1.0 : 1.0;
@@ -543,16 +489,6 @@ void manual_input(double *duty_l, double *duty_r)
   fflush(stdout);
   scanf("%lf",duty_r);
 }
-void timespec_diff(struct timespec *start, struct timespec *stop, long *nsec)
-{
-  if ((stop->tv_nsec - start->tv_nsec) < 0) {
-    *nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
-  } else {
-    *nsec = stop->tv_nsec - start->tv_nsec;
-  }
-
-  return;
-}
 
 int format_motor_text(char *text, int length, double *duty_cycle)
 {
@@ -560,7 +496,7 @@ int format_motor_text(char *text, int length, double *duty_cycle)
 
   char dir_char = 'F';
   if (signbit(*duty_cycle)) dir_char = 'R';
-  
+
   strncpy(text,"OFF",length);
   snprintf(text, length-3, "%lf", *duty_cycle);//Leave space at end for at least 3
   snprintf(text + strlen(text) - 1, 3, " %c", dir_char);//-1 to overwrite trailing null
