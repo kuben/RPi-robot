@@ -15,13 +15,13 @@
 
 int main(int argc, char **argv)
 {
-  long test[4] = {1,2,3,4};
-  for (int j = 0; j < 4; j++ ) {
-     printf("Element[%d] = %d\n", j, test[j] );
-  }
-  shift_into_array(test,4,5);
-  for (int j = 0; j < 4; j++ ) {
-     printf("Element[%d] = %d\n", j, test[j] );
+  char l_str[6] = "Left";
+  char r_str[6] = "Right";
+  l_str[2] = 'e';
+  char *str = l_str;
+  printf("%s%s%s\n",str,str,str);
+  for (int j = 0; j < 6; j++ ) {
+     printf("Element[%d] = %d: %c\n", j, str[j], str[j] );
   }
   /*
   setup_io();
@@ -40,7 +40,7 @@ int main(int argc, char **argv)
 //    nanosleep((const struct timespec[]){{0, sleeps[i]}}, NULL);
     nanosleep((const struct timespec[]){{0, 100000000}}, NULL);
     printButton(5);
-  }   
+  }
 //  for(i = 1;i < 1000;i++)
 //  {
 //    printf("%ld %ld\n", sleeps[i], time[i].tv_nsec);

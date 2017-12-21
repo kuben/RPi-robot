@@ -2,8 +2,7 @@
 //  How to access GPIO registers from C-code on the Raspberry-Pi
 //  Example program
 //  15-January-2012
-//  Dom and Gert
-//  Revised: 15-Feb-2013
+//  Dom and Gert //  Revised: 15-Feb-2013
 
 
 #include <stdio.h>
@@ -43,9 +42,9 @@ struct poll_arg_struct
   long *sleep_duration;
 };
 
-void set_max(double *duty_cycle);
-void set_min(double *duty_cycle);
-void increase_by(double *duty_cycle, double inc);
+void set_max(double *val, double max);
+void set_min(double *val, double min);
+void increase_by(double *val, double inc, double min, double max);
 
 void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg);
 
@@ -56,15 +55,19 @@ void *toggle_pins(void * arguments);
 int poll_pin_n_waves(int g, int n, double *return_freq, int max_loop_iters);
 void *poll_pin(void * arguments);
 
-void keypress_mode_stepwise(char c);
+int keypress_mode_stepwise(char c, double *l_val, double *r_val,
+    double step, double min, double max);
+int keypress_mode_dynamic (char c, double *l_val, double *r_val,
+    double step_small, double step_big, double min, double max);
 char debug_text[100] = { 0 };
 
+int *running;
 int main(int argc, char **argv)
 {
   // Set up gpi pointer for direct register access
   setup_io();
 
-  int *running = malloc(sizeof(int));
+  running = malloc(sizeof(int));
   *running = 1;
 
   double *duty_l = malloc(sizeof(double));
@@ -80,7 +83,7 @@ int main(int argc, char **argv)
   *sleep_duration = 900000000;
   *rpm_sleep_duration = 1000000;//1ms
   *measured_freq = 0.0;
-  
+
   pthread_t motor_l, motor_r, poll_thread, rpm_thread;
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
   *args_l = (struct arg_struct){.duty_cycle = duty_l, .g_A = PIN_L_A,
@@ -123,7 +126,7 @@ int main(int argc, char **argv)
     format_motor_text(l_text,sizeof(l_text),duty_l);
     format_motor_text(r_text,sizeof(r_text),duty_r);
     snprintf(status_text, 50, "%lf", *measured_freq);
-  
+
     snprintf(l_text, 10, "%lf", *rpm_r);
     snprintf(r_text, 10, "%lf", *rpm_r);
 
@@ -136,84 +139,23 @@ int main(int argc, char **argv)
     int c = getch();
     if (mode == 0)
     {
-      keypress_mode_stepwise(c);
+      int res = keypress_mode_stepwise(c, duty_l, duty_r, 0.1, -1.0, 1.0);
+      if (res == 1)
+      {
+        mode = 1;
+        timeout(100);
+      }
     } else {
-      switch (c) {
-        case 65:
-          if (!(signbit(*duty_r) | signbit(*duty_l)))
-          {//Both forward - accelerate
-            printw("Accelerating L, R\n");
-            increase_by(duty_l, 0.05);
-            increase_by(duty_r, 0.05);
-          } else {//Both reverse or different dir.
-            if ((*duty_l != 0.0) | (*duty_r != 0.0))
-            {//Slow down
-              printw("Slowing down L, R\n");
-              increase_by(duty_l, -0.2);
-              increase_by(duty_r, -0.2);
-            } else {//Set direction to forward
-	      *duty_l = fabs(*duty_l);
-	      *duty_r = fabs(*duty_r);
-            }
-          }
-          break;
-        case 66:
-          if (signbit(*duty_r) & signbit(*duty_l))
-          {//Both reverse /- accelerate
-            printw("Accelerating L, R\n");
-            increase_by(duty_l, 0.05);
-            increase_by(duty_r, 0.05);
-          } else {//Both forward or different dir
-            if ((*duty_l != 0.0) | (*duty_r != 0.0))
-            {//Slow down
-              printw("Slowing down L, R\n");
-              increase_by(duty_l, -0.2);
-              increase_by(duty_r, -0.2);
-            } else {//Set direction to reverse
-	      *duty_l = -fabs(*duty_l);
-	      *duty_r = -fabs(*duty_r);
-            }
-	  }
-          break;
-        // Accelerate no matter what direction
-        case 67:
-          printw("Accelerating    R\n");
-          increase_by(duty_r, 0.05);
-          break;
-        case 68:
-          printw("Accelerating L\n");
-          increase_by(duty_l, 0.05);
-          break;
-        case 9://Tab
-          mode = 0;
-          timeout(-1);
-          break;
-        case ',':
-          timeout(-1);
-          break;
-        case '.':
-          timeout(100);
-          break;
-        case ' ':
-          set_min(duty_l);
-          set_min(duty_r);
-          break;
-        case '`':
-          endwin();
-          *running = -1;
-          *sleep_duration = -1;
-          *rpm_sleep_duration = -1;
-          return 0;
-        case 27:
-        case 91:
-          break;
-        default:
-          printw("Slowing down\n");
-          increase_by(duty_l, -0.05);
-          increase_by(duty_r, -0.05);
+      int res = keypress_mode_dynamic(c, duty_l, duty_r, 0.05, 0.2, -1.0, 1.0);
+      if (res == 1)
+      {
+        mode = 0;
+        timeout(-1);
       }
     }
   }
+  *sleep_duration = -1;
+  *rpm_sleep_duration = -1;
 
   //Unneccessary
   pthread_join( motor_l, NULL);
@@ -239,102 +181,153 @@ int main(int argc, char **argv)
 
 } // main
 
-//Choose apropriate action depenting on mode and key pressed
-void keypress_mode_stepwise(char c)
+/*
+ * Choose appropriate action depending on mode and key pressed
+ * Duty cycle or setpoint depending on arguments
+ * Return 1 when changing mode
+ */
+int keypress_mode_stepwise(char c, double *l_val, double *r_val,
+    double step, double min, double max)
 {
+  char l_str[6] = "Left";
+  char r_str[6] = "Right";
+  char *side;//Pointer to "Left" or "Right"
+  double *val;
   switch(c) {
-    case '3':
-      printw("%c: Left motor max speed\n",c);
-      set_max(duty_l);
-      break;
-    case 'e':
-      printw("%c: Left motor increase speed\n",c);
-      increase_by(duty_l,0.1);
-      break;
-    case 'd':
-      printw("%c: Left motor decrease speed\n",c);
-      increase_by(duty_l,-0.1);
-      break;
-    case 'c':
-      printw("%c: Left motor min speed\n",c);
-      set_min(duty_l);
-      break;
-    case '4':
-      printw("%c: Right motor max speed\n",c);
-      set_max(duty_r);
-      break;
-    case 'r':
-      printw("%c: Right motor increase speed\n",c);
-      increase_by(duty_r,0.1);
-      break;
-    case 'f':
-      printw("%c: Right motor decrease speed\n",c);
-      increase_by(duty_r,-0.1);
-      break;
-    case 'v':
-      printw("%c: Right motor min speed\n",c);
-      set_min(duty_r);
-      break;
-    case 'w':
-      printw("%c: Left motor forward\n",c);
-      *duty_l = fabs(*duty_l);
-      break;
-    case 's':
-      printw("%c: Left motor reverse\n",c);
-      *duty_l = -fabs(*duty_l);
-      break;
-    case 't':
-      printw("%c: Right motor forward\n",c);
-      *duty_r = fabs(*duty_r);
-      break;
-    case 'g':
-      printw("%c: Right motor reverse\n",c);
-      *duty_r = -fabs(*duty_r);
-      break;
     case ' ':
       endwin();
-      manual_input(duty_l, duty_r);
+      manual_input(l_val, r_val);
       initscr();
-      break;
+      return 0;
     case '`':
       endwin();
       *running = 0;
-      *sleep_duration = -1;
-      *rpm_sleep_duration = -1;
       return 0;
-    case 'p':
-      /*struct timespec ts_start;
-	struct timespec ts_test;
-	struct timespec ts_end;
-	long elapsed;
-	int k;
-      //500ns just empty code
-      //Av. 500ns - 700ns GET_GPIO(4)
-      //Av. 1200ns measure time; GET_GPIO; measure time
-      clock_gettime(CLOCK_MONOTONIC, &ts_start);
-
-      clock_gettime(CLOCK_MONOTONIC, &ts_test);
-      i = GET_GPIO(4);
-      clock_gettime(CLOCK_MONOTONIC, &ts_test);
-
-      clock_gettime(CLOCK_MONOTONIC, &ts_end);
-      timespec_diff(&ts_start, &ts_end, &elapsed);
-      if (i) printf("True Time elapsed: %ldns, state: %ld",elapsed,i);
-      else printf("FalseTime elapsed: %ldns, state: %ld",elapsed,i);*/
-      //for(int i = 0;i < 10000;i++)
-      break;
     case 9://Tab
-      mode = 1;
-      timeout(100);
+      return 1;//Change mode
+    //case 'l':
+    //  ;
+    //  printw("gpio %d RPM %lf\n",GET_GPIO(PIN_RPM_RR),*rpm_r);
+    //  break;
+    case '3': case 'e': case 'd': case 'c': case 'w': case 's':
+      side = l_str;
+      val = l_val;
       break;
-    case 'l':
-      ;
-      printw("gpio %d RPM %lf\n",GET_GPIO(PIN_RPM_RR),*rpm_r);
+    case '4': case 'r': case 'f': case 'v': case 't': case 'g':
+      side = r_str;
+      val = r_val;
       break;
     default://65-68 up dn right left
       printw("%d %c invalid\n",c,c);
+      return 0;
   }
+  switch(c) {
+    case '3': case '4':
+      printw("%c: %s motor max speed\n",c, side);
+      set_max(val, max);
+      break;
+    case 'e': case 'r':
+      printw("%c: %s motor increase speed\n",c, side);
+      increase_by(val,step, min, max);
+      break;
+    case 'd': case 'f':
+      printw("%c: %s motor decrease speed\n",c, side);
+      increase_by(val,-step, min, max);
+      break;
+    case 'c': case 'v':
+      printw("%c: %s motor min speed\n",c, side);
+      set_min(val,min);
+      break;
+    case 'w': case 't':
+      printw("%c: %s motor forward\n",c, side);
+      *val= fabs(*val);
+      break;
+    case 's': case 'g':
+      printw("%c: %s motor reverse\n",c, side);
+      *val= -fabs(*val);
+      break;
+    default :
+      break;
+  }
+  return 0;
 }
+
+int keypress_mode_dynamic (char c, double *l_val, double *r_val,
+    double step_small, double step_big, double min, double max)
+{
+  switch (c) {
+    case 65:
+      if (!(signbit(*l_val) | signbit(*r_val)))
+      {//Both forward - accelerate
+        printw("Accelerating L, R\n");
+        increase_by(l_val, step_small, min, max);
+        increase_by(r_val, step_small, min, max);
+      } else {//Both reverse or different dir.
+        if ((*l_val != min) | (*r_val != min))
+        {//Slow down
+          printw("Slowing down L, R\n");
+          increase_by(l_val, -step_big, min, max);
+          increase_by(r_val, -step_big, min, max);
+        } else {//Set direction to forward
+          *l_val = fabs(*l_val);
+          *r_val = fabs(*r_val);
+        }
+      }
+      break;
+    case 66:
+      if (signbit(*l_val) & signbit(*r_val))
+      {//Both reverse /- accelerate
+        printw("Accelerating L, R\n");
+        increase_by(l_val, step_small, min, max);
+        increase_by(r_val, step_small, min, max);
+      } else {//Both forward or different dir
+        if ((*l_val != min) | (*r_val != min))
+        {//Slow down
+          printw("Slowing down L, R\n");
+          increase_by(l_val, -step_big, min, max);
+          increase_by(r_val, -step_big, min, max);
+        } else {//Set direction to reverse
+          *l_val= -fabs(*l_val);
+          *r_val = -fabs(*r_val);
+        }
+      }
+      break;
+      // Accelerate no matter what direction
+    case 67:
+      printw("Accelerating R\n");
+      increase_by(r_val, step_small, min, max);
+      break;
+    case 68:
+      printw("Accelerating L\n");
+      increase_by(l_val, step_small, min, max);
+      break;
+    case 9://Tab
+      return 1;
+    case ',':
+      timeout(-1);
+      break;
+    case '.':
+      timeout(100);
+      break;
+    case ' ':
+      set_min(l_val, min);
+      set_min(r_val, min);
+      break;
+    case '`':
+      endwin();
+      *running = -1;
+      return 0;
+    case 27:
+    case 91:
+      break;
+    default:
+      printw("Slowing down\n");
+      increase_by(l_val, -step_small, min, max);
+      increase_by(r_val, -step_small, min, max);
+  }
+  return 0;
+}
+
 void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg)
 {
   int iret = pthread_create(thread, NULL, start_routine, arg);
@@ -468,23 +461,23 @@ void* toggle_pins(void *arguments)
   return 0;
 }
 
-void set_max(double *duty_cycle)
+void set_max(double *val, double max)
 {
-  *duty_cycle = signbit(*duty_cycle) ? -1.0 : 1.0;
+  *val = signbit(*val) ? -max : max;
 }
 
-void set_min(double *duty_cycle){
-  *duty_cycle = signbit(*duty_cycle) ? -0.0 : 0.0;
+void set_min(double *val, double min){
+  *val = signbit(*val) ? -min : min;
 }
 
-void increase_by(double *duty_cycle, double inc)
+void increase_by(double *val, double inc, double min, double max)
 {
-  if(fabs(*duty_cycle) + inc >= 1.0) set_max(duty_cycle);
-  else if(fabs(*duty_cycle) + inc <= 0.0) set_min(duty_cycle);
+  if(fabs(*val) + inc >= max) set_max(val, max);
+  else if(fabs(*val) + inc <= min) set_min(val, min);
   else
   {
-    double dc_abs = fabs(*duty_cycle) + inc;
-    *duty_cycle = signbit(*duty_cycle) ? -dc_abs : dc_abs;
+    double dc_abs = fabs(*val) + inc;
+    *val= signbit(*val) ? -dc_abs : dc_abs;
   }
 }
 
