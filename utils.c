@@ -97,10 +97,10 @@ void setup_io()
       MAP_SHARED,       //Shared with other processes
       mem_fd,           //File to map
       GPIO_BASE         //Offset to GPIO peripheral
-   ); 
-   
+   );
+
    close(mem_fd); //No need to keep mem_fd open after mmap
-      
+
    if (gpio_map == MAP_FAILED) {
       printf("mmap error %d\n", (int)gpio_map);//errno also set!
       exit(-1);
@@ -111,6 +111,11 @@ void setup_io()
 
 
 } // setup_io
+
+void free_io()
+{
+  free(gpio_map);
+}
 
 int shift_into_array(long *array, int size, long element_in)
 {

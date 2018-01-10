@@ -30,6 +30,7 @@ extern char debug_text[100];
 #define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
 
 void setup_io();
+void free_io();
 void printButton(int g);
 
 int delay(int nsec);

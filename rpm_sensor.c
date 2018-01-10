@@ -26,6 +26,7 @@ void* read_rpm(void *arguments)
   int pin_write = args->pin_write;
   double *rpm = args->rpm;
   long *sleep_duration = args->sleep_duration;
+  int *running = args->running;
   INP_GPIO(pin_read);
   INP_GPIO(pin_write);
   OUT_GPIO(pin_write);
@@ -38,7 +39,7 @@ void* read_rpm(void *arguments)
   long diff = 0;
   clock_gettime(CLOCK_MONOTONIC, &ts_last);
   clock_gettime(CLOCK_MONOTONIC, &ts_now);
-  while (*sleep_duration >= 0)
+  while (*running)
   {
     int res = poll_sensor(pin_read, pin_write, last_state, sleep_duration);
     if (res == 1)//Pulse detected
@@ -52,9 +53,9 @@ void* read_rpm(void *arguments)
       clock_gettime(CLOCK_MONOTONIC, &ts_now);//'Last' still indicates last pulse
       timespec_diff_ms(&ts_last, &ts_now, diff_array);//This overwrites the first value in the array
     }
-      snprintf(debug_text, 70, "diff {%ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld...\n", diff_array[0], diff_array[1], diff_array[2], diff_array[3], diff_array[4], diff_array[5], diff_array[6], diff_array[7], diff_array[8], diff_array[9], diff_array[10], diff_array[11], diff_array[12], diff_array[13], diff_array[14], diff_array[15], diff_array[16], diff_array[17], diff_array[18], diff_array[19], diff_array[20], diff_array[21], diff_array[22] );
+    snprintf(debug_text, 70, "diff {%ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld...\n", diff_array[0], diff_array[1], diff_array[2], diff_array[3], diff_array[4], diff_array[5], diff_array[6], diff_array[7], diff_array[8], diff_array[9], diff_array[10], diff_array[11], diff_array[12], diff_array[13], diff_array[14], diff_array[15], diff_array[16], diff_array[17], diff_array[18], diff_array[19], diff_array[20], diff_array[21], diff_array[22] );
     *rpm = rpm_from_diffarray(diff_array,DIFF_LENGTH);
-    
+
     adjust_sleep_dur(sleep_duration, rpm);
   }
   return 0;
@@ -66,10 +67,13 @@ double rpm_from_diffarray(long array[], int size)
   if (array[0] > 2000) return 0.0;//Rpm is 0 if still for > 2 sec. Will cause discontinuity
   int n = 0;
   long sum = 0;
-  for (int i = 0; i < 15; i++)//Only integrate over last 15
+  for (int i = 0; n < 15 && i < DIFF_LENGTH; i++)//Only integrate over last 15
   {
-    if (array[i] != 0) n++;//Consider 0 elements uninitialized
-    sum += array[i];
+    if (array[i] > 40)//If less than 40 msec (25 rot per sec), then discard
+    {
+      n++;
+      sum += array[i];
+    }
   }
   if (sum == 0) return 0.0;
   return (double)1000*n/sum;
