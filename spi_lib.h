@@ -16,5 +16,18 @@
 #include <linux/spi/spidev.h>
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
-int read_mcp3008();
+
+/*
+struct sensor_arg_struct
+{
+  int pin_read;
+  int pin_write;
+  double *rpm;
+  long *sleep_duration;
+  int *running;
+};
+
+void *read_sensors(void *arguments);
+*/
+int read_mcp3008(int channel, uint16_t *left_response, uint16_t *right_response);
 #endif

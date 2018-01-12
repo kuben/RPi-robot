@@ -114,19 +114,14 @@ int main(int argc, char **argv)
   initscr();
   noecho();
   raw();
-  timeout(100);//Refresh every 0.1s
+  timeout(500);//Refresh every 0.1s
   int mode = 0;//0 - Increments, 1 - Hold for speed
   INP_GPIO(3);
   INP_GPIO(2);
   OUT_GPIO(2);
 
-  if (argc > 2)
-  {
-    endwin();
-    read_mcp3008();
-    *running = 0;
-  }
-
+  uint16_t *left_response = malloc(sizeof(uint16_t));
+  uint16_t *right_response = malloc(sizeof(uint16_t));
   while (*running)
   {
     char l_text[10];
@@ -142,7 +137,13 @@ int main(int argc, char **argv)
     snprintf(r_text, 10, "%lf", *rpm_r);
 
     mvprintw(1,0,"     %-10s         %s\n",l_text,r_text);
-    mvprintw(2,0,"%-50s\n",debug_text);
+
+    //Read sensors
+    read_mcp3008(0, left_response, right_response);
+    mvprintw(2,0,"Temp %-4hd   %-4hd same %d\n",(unsigned short) (*left_response), (unsigned short) (*right_response), (*right_response == *left_response));
+
+    //Debugging string
+    mvprintw(3,0,"%-50s\n",debug_text);
     refresh();
 
     move(3,0);
