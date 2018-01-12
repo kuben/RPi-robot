@@ -13,6 +13,7 @@
 #include <curses.h>
 #include <math.h>
 
+#include "spi_lib.h"
 #include "utils.h"
 #include "rpm_sensor.h"
 
@@ -119,6 +120,13 @@ int main(int argc, char **argv)
   INP_GPIO(2);
   OUT_GPIO(2);
 
+  if (argc > 2)
+  {
+    endwin();
+    read_mcp3008();
+    *running = 0;
+  }
+
   while (*running)
   {
     char l_text[10];
@@ -160,6 +168,7 @@ int main(int argc, char **argv)
   *sleep_duration = -1;
   *rpm_sleep_duration = -1;
 
+  endwin();
   //Unneccessary
   pthread_join( motor_l, NULL);
   pthread_join( motor_r, NULL);
