@@ -29,5 +29,5 @@ struct sensor_arg_struct
 
 void *read_sensors(void *arguments);
 */
-int read_mcp3008(int channel, uint16_t *left_response, uint16_t *right_response);
+int read_mcp3008(int channel, double *voltage);
 #endif

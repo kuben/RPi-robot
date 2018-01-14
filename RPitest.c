@@ -79,6 +79,7 @@ int main(int argc, char **argv)
   double *measured_freq = malloc(sizeof(double));
   long *sleep_duration = malloc(sizeof(long));
   long *rpm_sleep_duration = malloc(sizeof(long));//Will need one more
+  double *sensor_voltage = malloc(sizeof(double));
 
   *duty_l = 0.0;//(double){atof(argv[1])};
   *duty_r = 0.0;//(double){atof(argv[2])};
@@ -86,6 +87,7 @@ int main(int argc, char **argv)
   *sleep_duration = 900000000;
   *rpm_sleep_duration = 1000000;//1ms
   *measured_freq = 0.0;
+  *sensor_voltage = 0.0;
 
   pthread_t motor_l, motor_r, poll_thread, rpm_thread;
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
@@ -114,14 +116,12 @@ int main(int argc, char **argv)
   initscr();
   noecho();
   raw();
-  timeout(500);//Refresh every 0.1s
+  timeout(100);//Refresh every 0.1s
   int mode = 0;//0 - Increments, 1 - Hold for speed
   INP_GPIO(3);
   INP_GPIO(2);
   OUT_GPIO(2);
 
-  uint16_t *left_response = malloc(sizeof(uint16_t));
-  uint16_t *right_response = malloc(sizeof(uint16_t));
   while (*running)
   {
     char l_text[10];
@@ -139,8 +139,8 @@ int main(int argc, char **argv)
     mvprintw(1,0,"     %-10s         %s\n",l_text,r_text);
 
     //Read sensors
-    read_mcp3008(0, left_response, right_response);
-    mvprintw(2,0,"Temp %-4hd   %-4hd same %d\n",(unsigned short) (*left_response), (unsigned short) (*right_response), (*right_response == *left_response));
+    read_mcp3008(0, sensor_voltage);
+    mvprintw(2,0,"Temp %-4lfV",*sensor_voltage);
 
     //Debugging string
     mvprintw(3,0,"%-50s\n",debug_text);
@@ -182,6 +182,7 @@ int main(int argc, char **argv)
   free(measured_freq);
   free(sleep_duration);
   free(rpm_sleep_duration);
+  free(sensor_voltage);
   free(args_l);
   free(args_r);
   free(args_poll);

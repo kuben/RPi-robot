@@ -19,6 +19,7 @@ static void pabort(const char *s)
 	abort();
 }
 
+static const double V_ref = 3.3;
 static const char *device = "/dev/spidev0.0";
 static uint32_t mode;
 static uint8_t bits = 8;
@@ -59,12 +60,12 @@ static void transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
 }
 
 
-int8_t bit_flip(uint8_t word)
+uint8_t bit_flip(uint8_t word)
 {
   return ((word * 0x0802LU & 0x22110LU) | (word * 0x8020LU & 0x88440LU)) * 0x10101LU >> 16;
 }
 
-int read_mcp3008(int channel, uint16_t *left_response, uint16_t *right_response)
+int read_mcp3008(int channel, double *voltage)
 {
 	int ret = 0;
 	int fd;
@@ -118,12 +119,12 @@ int read_mcp3008(int channel, uint16_t *left_response, uint16_t *right_response)
 	//printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
 
     char tx_pattern[] = { 0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78 };
-    uint8_t tx[] = { tx_pattern[channel], 0x00, 0x00, 0x00 };
+    uint8_t tx[] = { tx_pattern[channel], 0x00, 0x00 };
     uint8_t rx[ARRAY_SIZE(tx)] = {0, };
 	transfer(fd, tx, rx, sizeof(tx));
 
-    *left_response = ((uint16_t)rx[1] << 2) + (rx[2] >> 6);
-    *right_response = ((uint16_t)bit_flip(rx[3])<<7) + (bit_flip(rx[2])>>1);
+    uint16_t left_response = ((uint16_t)rx[1] << 2) + (rx[2] >> 6);
+    *voltage = V_ref*left_response/1024;
     //unsigned short guaranteed at least 16 bits, printf doesn't have uint16 type
     //printf("Left: %hu Right: %hu\n", (unsigned short) left_response, (unsigned short) right_response);
 
