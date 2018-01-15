@@ -89,6 +89,8 @@ int main(int argc, char **argv)
   *measured_freq = 0.0;
   *sensor_voltage = 0.0;
 
+  double temp;
+
   pthread_t motor_l, motor_r, poll_thread, rpm_thread;
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
   *args_l = (struct arg_struct){.duty_cycle = duty_l, .g_A = PIN_L_A,
@@ -139,8 +141,15 @@ int main(int argc, char **argv)
     mvprintw(1,0,"     %-10s         %s\n",l_text,r_text);
 
     //Read sensors
+
+    //Channel 0 - Temperature
     read_mcp3008(0, sensor_voltage);
-    mvprintw(2,0,"Temp %-4lfV",*sensor_voltage);
+    temp = *sensor_voltage/0.11;//In celcius
+    mvprintw(2,0,"Temp %-4.1lf°C (%-4lfV)", temp, *sensor_voltage);
+
+    //Channel 1 - Proximity
+    read_mcp3008(1, sensor_voltage);
+    mvprintw(4,0,"In proximity? (%-4lfV) ", *sensor_voltage);
 
     //Debugging string
     mvprintw(3,0,"%-50s\n",debug_text);

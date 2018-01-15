@@ -23,7 +23,7 @@ static const double V_ref = 3.3;
 static const char *device = "/dev/spidev0.0";
 static uint32_t mode;
 static uint8_t bits = 8;
-static uint32_t speed = 500000;
+static uint32_t speed = 1350000;
 static uint16_t delay;
 
 static void transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
@@ -118,12 +118,12 @@ int read_mcp3008(int channel, double *voltage)
 	//printf("bits per word: %d\n", bits);
 	//printf("max speed: %d Hz (%d KHz)\n", speed, speed/1000);
 
-    char tx_pattern[] = { 0x40, 0x48, 0x50, 0x58, 0x60, 0x68, 0x70, 0x78 };
-    uint8_t tx[] = { tx_pattern[channel], 0x00, 0x00 };
+    char tx_pattern[] = { 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0 };
+    uint8_t tx[] = { 0x01, tx_pattern[channel], 0x00 };
     uint8_t rx[ARRAY_SIZE(tx)] = {0, };
 	transfer(fd, tx, rx, sizeof(tx));
 
-    uint16_t left_response = ((uint16_t)rx[1] << 2) + (rx[2] >> 6);
+    uint16_t left_response = ((uint16_t)(rx[1] & 3) << 8) + rx[2];
     *voltage = V_ref*left_response/1024;
     //unsigned short guaranteed at least 16 bits, printf doesn't have uint16 type
     //printf("Left: %hu Right: %hu\n", (unsigned short) left_response, (unsigned short) right_response);
