@@ -19,7 +19,7 @@ static void pabort(const char *s)
 	abort();
 }
 
-static const double V_ref = 3.3;
+static const float V_ref = 3.3;
 static const char *device = "/dev/spidev0.0";
 static uint32_t mode;
 static uint8_t bits = 8;
@@ -65,7 +65,7 @@ uint8_t bit_flip(uint8_t word)
   return ((word * 0x0802LU & 0x22110LU) | (word * 0x8020LU & 0x88440LU)) * 0x10101LU >> 16;
 }
 
-int read_mcp3008(int channel, double *voltage)
+int read_mcp3008(int channel, float *voltage)
 {
 	int ret = 0;
 	int fd;

@@ -78,6 +78,18 @@ void timespec_diff(struct timespec *start, struct timespec *stop, long *nsec)
   return;
 }
 
+void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg)
+{
+  int iret = pthread_create(thread, NULL, start_routine, arg);
+  if (iret)
+  {
+    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret);
+    exit(EXIT_FAILURE);
+  }
+  printf("Created pthread");
+}
+
+
 //
 // Set up a memory regions to access GPIO
 //

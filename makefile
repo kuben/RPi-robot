@@ -6,6 +6,6 @@ default: all
 all: RPitest
 
 RPitest: RPitest.c
-	$(CC) $(CFLAGS) -o RPitest RPitest.c utils.c rpm_sensor.c spi_lib.c
+	$(CC) $(CFLAGS) -o RPitest RPitest.c utils.c rpm_sensor.c spi_lib.c analog_sample.c
 clean:
 	rm -f RPitest

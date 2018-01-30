@@ -16,6 +16,7 @@
 #include "spi_lib.h"
 #include "utils.h"
 #include "rpm_sensor.h"
+#include "analog_sample.h"
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 #define NSLEEPDELAY 65129
@@ -49,8 +50,6 @@ void set_max(double *val, double max);
 void set_min(double *val, double min);
 void increase_by(double *val, double inc, double min, double max);
 
-void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg);
-
 void manual_input(double *duty_l, double *duty_r);
 int format_motor_text(char *text, int length, double *duty_cycle);
 void set_pin(int g,int state);
@@ -79,7 +78,7 @@ int main(int argc, char **argv)
   double *measured_freq = malloc(sizeof(double));
   long *sleep_duration = malloc(sizeof(long));
   long *rpm_sleep_duration = malloc(sizeof(long));//Will need one more
-  double *sensor_voltage = malloc(sizeof(double));
+  float *sensor_voltage = malloc(sizeof(double));
 
   *duty_l = 0.0;//(double){atof(argv[1])};
   *duty_r = 0.0;//(double){atof(argv[2])};
@@ -158,6 +157,7 @@ int main(int argc, char **argv)
     move(3,0);
     int c = getch();
     if (c==-1) continue;//No input
+    if (c=='l') open_oscilloscope();
     if (mode == 0)
     {
       int res = keypress_mode_stepwise(c, duty_l, duty_r, 0.1, 0.0, 1.0);
@@ -356,17 +356,6 @@ int keypress_mode_dynamic (char c, double *l_val, double *r_val,
       increase_by(r_val, -step_small, min, max);
   }
   return 0;
-}
-
-void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg)
-{
-  int iret = pthread_create(thread, NULL, start_routine, arg);
-  if (iret)
-  {
-    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret);
-    exit(EXIT_FAILURE);
-  }
-  printf("Created pthread");
 }
 
 void set_pin(int g,int state){
