@@ -13,8 +13,10 @@
 #include <curses.h>
 #include <math.h>
 
+#include "spi_lib.h"
 #include "utils.h"
 #include "rpm_sensor.h"
+#include "analog_sample.h"
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 #define NSLEEPDELAY 65129
@@ -26,6 +28,8 @@
 #define PIN_R_B 27
 #define PIN_RPM_RR 5
 #define PIN_RPM_RW 6
+#define PIN_RPM_LR 12
+#define PIN_RPM_LW 13
 
 struct arg_struct
 {
@@ -45,8 +49,6 @@ struct poll_arg_struct
 void set_max(double *val, double max);
 void set_min(double *val, double min);
 void increase_by(double *val, double inc, double min, double max);
-
-void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg);
 
 void manual_input(double *duty_l, double *duty_r);
 int format_motor_text(char *text, int length, double *duty_cycle);
@@ -76,6 +78,7 @@ int main(int argc, char **argv)
   double *measured_freq = malloc(sizeof(double));
   long *sleep_duration = malloc(sizeof(long));
   long *rpm_sleep_duration = malloc(sizeof(long));//Will need one more
+  float *sensor_voltage = malloc(sizeof(double));
 
   *duty_l = 0.0;//(double){atof(argv[1])};
   *duty_r = 0.0;//(double){atof(argv[2])};
@@ -83,6 +86,9 @@ int main(int argc, char **argv)
   *sleep_duration = 900000000;
   *rpm_sleep_duration = 1000000;//1ms
   *measured_freq = 0.0;
+  *sensor_voltage = 0.0;
+
+  double temp;
 
   pthread_t motor_l, motor_r, poll_thread, rpm_thread;
   struct arg_struct *args_l = malloc(sizeof(struct arg_struct));
@@ -99,7 +105,7 @@ int main(int argc, char **argv)
 
   struct rpm_arg_struct *args_rpm = malloc(sizeof(struct rpm_arg_struct));
   *args_rpm = (struct rpm_arg_struct){.rpm = rpm_r, .pin_read = PIN_RPM_RR,
-	  .pin_write = PIN_RPM_RW, .sleep_duration = rpm_sleep_duration};
+	  .pin_write = PIN_RPM_RW, .sleep_duration = rpm_sleep_duration, .running = running};
 
   /* Create independent threads each of which will execute function */
   create_thread(&motor_l, toggle_pins, (void *)args_l);
@@ -111,7 +117,7 @@ int main(int argc, char **argv)
   initscr();
   noecho();
   raw();
-  timeout(-1);
+  timeout(100);//Refresh every 0.1s
   int mode = 0;//0 - Increments, 1 - Hold for speed
   INP_GPIO(3);
   INP_GPIO(2);
@@ -126,46 +132,70 @@ int main(int argc, char **argv)
     format_motor_text(l_text,sizeof(l_text),duty_l);
     format_motor_text(r_text,sizeof(r_text),duty_r);
     snprintf(status_text, 50, "%lf", *measured_freq);
+    mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s  (mode %d)\n",l_text,r_text,status_text,mode);
 
     snprintf(l_text, 10, "%lf", *rpm_r);
     snprintf(r_text, 10, "%lf", *rpm_r);
 
-    mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s\n",l_text,r_text,status_text);
     mvprintw(1,0,"     %-10s         %s\n",l_text,r_text);
-    mvprintw(2,0,"%-50s\n",debug_text);
+
+    //Read sensors
+
+    //Channel 0 - Temperature
+    read_mcp3008(0, sensor_voltage);
+    temp = *sensor_voltage/0.11;//In celcius
+    mvprintw(2,0,"Temp %-4.1lf°C (%-4lfV)", temp, *sensor_voltage);
+
+    //Channel 1 - Proximity
+    read_mcp3008(1, sensor_voltage);
+    mvprintw(4,0,"In proximity? (%-4lfV) ", *sensor_voltage);
+
+    //Debugging string
+    mvprintw(3,0,"%-50s\n",debug_text);
     refresh();
 
     move(3,0);
     int c = getch();
+    if (c==-1) continue;//No input
+    if (c=='l') open_oscilloscope();
     if (mode == 0)
     {
-      int res = keypress_mode_stepwise(c, duty_l, duty_r, 0.1, -1.0, 1.0);
+      int res = keypress_mode_stepwise(c, duty_l, duty_r, 0.1, 0.0, 1.0);
       if (res == 1)
       {
         mode = 1;
         timeout(100);
       }
     } else {
-      int res = keypress_mode_dynamic(c, duty_l, duty_r, 0.05, 0.2, -1.0, 1.0);
+      int res = keypress_mode_dynamic(c, duty_l, duty_r, 0.05, 0.2, 0.0, 1.0);
       if (res == 1)
       {
         mode = 0;
-        timeout(-1);
+        timeout(100);//Refresh every 0.1s
       }
     }
   }
   *sleep_duration = -1;
   *rpm_sleep_duration = -1;
 
+  endwin();
   //Unneccessary
   pthread_join( motor_l, NULL);
   pthread_join( motor_r, NULL);
+  pthread_join( rpm_thread, NULL);
 
+  free(running);
   free(duty_l);
   free(duty_r);
+  free(rpm_r);
+  free(measured_freq);
+  free(sleep_duration);
+  free(rpm_sleep_duration);
+  free(sensor_voltage);
   free(args_l);
   free(args_r);
-
+  free(args_poll);
+  free(args_rpm);
 
   GPIO_CLR = 1<<PIN_FREQ_POLL;
   GPIO_CLR = 1<<PIN_PROX;
@@ -174,7 +204,7 @@ int main(int argc, char **argv)
   GPIO_CLR = 1<<PIN_R_A;
   GPIO_CLR = 1<<PIN_R_B;
 
-  free(gpio_map);
+  free_io();
   exit(EXIT_SUCCESS);
 
   return 0;
@@ -315,7 +345,7 @@ int keypress_mode_dynamic (char c, double *l_val, double *r_val,
       break;
     case '`':
       endwin();
-      *running = -1;
+      *running = 0;
       return 0;
     case 27:
     case 91:
@@ -326,17 +356,6 @@ int keypress_mode_dynamic (char c, double *l_val, double *r_val,
       increase_by(r_val, -step_small, min, max);
   }
   return 0;
-}
-
-void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg)
-{
-  int iret = pthread_create(thread, NULL, start_routine, arg);
-  if (iret)
-  {
-    fprintf(stderr,"Error - pthread_create() return code: %d\n",iret);
-    exit(EXIT_FAILURE);
-  }
-  printf("Created pthread");
 }
 
 void set_pin(int g,int state){

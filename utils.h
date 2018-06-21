@@ -2,6 +2,7 @@
 #define UTILS
 
 #include <time.h>
+#include <pthread.h>
 
 #define BCM2708_PERI_BASE        0x3F000000
 #define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
@@ -30,7 +31,10 @@ extern char debug_text[100];
 #define GPIO_PULLCLK0 *(gpio+38) // Pull up/pull down clock
 
 void setup_io();
+void free_io();
 void printButton(int g);
+
+void create_thread(pthread_t * thread, void * (*start_routine)(void *), void *arg);
 
 int delay(int nsec);
 void pin_up(int pin);

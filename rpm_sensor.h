@@ -8,6 +8,7 @@ struct rpm_arg_struct
   int pin_write;
   double *rpm;
   long *sleep_duration;
+  int *running;
 };
 
 int poll_sensor(int pin_read, int pin_write, int last_state, long *sleep_duration);
