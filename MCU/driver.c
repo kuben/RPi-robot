@@ -17,6 +17,8 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
 #define RX_TRIS TRISBbits.TRISB4
 
 void setup();
+void rx_done();
+int transmit(uint8_t word);
 
 // Uncalibrated delay, just waits a number of for-loop iterations
 void delay(uint16_t iterations)
@@ -29,47 +31,56 @@ void delay(uint16_t iterations)
 }
 
 volatile uint8_t blink = 1;
+
+/*
+ * uart: low start bit - eight data bits - high stop bit
+ * Receive:
+ *   If ready and rx changes to low then start timer
+ *     On timer 1-8: read rx and store corresponding bit (lsb first)
+ *     On timer 9: If high then transmission is deemed succesful
+ * Transmit:
+ *   Begin transmission by setting tx low. Start timer
+ *    On timer 1-8: Set tx to corresponding bit
+ *    On timer 9: Set tx high
+ * rx will fail if tx ongoing and vice versa
+ */
 struct uart_struct {
     uint8_t rx_buf;
-    uint8_t next_rx;//0 means ready, otherwise (1<<bit)
-    uint8_t tx_buf;
-    uint8_t next_tx;
+    uint8_t next_rx;//0: ready, 1,2,4,8,..: waiting on bit n, -1: waiting on stop bit
+    uint8_t tx_send;
+    uint8_t next_tx;//0: ready, 1,2,4,8,..: waiting on bit n, -1: waiting on stop bit
+
 };
 volatile struct uart_struct uart = {0};
 
 void main(void)
 {
-    uint16_t d,k;
+    uint8_t i = 0;
+    const char *message = "Hello World!\n";
     setup();
 
 
     TX_TRIS = 0; // Pin as output
-    TX = 0; // LED off
+    TX = 1;//tx idles high
 
-    while (1) {
-        //if(!blink) continue;
-        //d = RX?10000:30000;
-        k = uart.rx_buf;
-        d = 10000*(k?k:1);
-        //d = 10000*((blink>6)?6:blink+1);
-        TX = 1; // LED On
-        //delay(30000); // ~500ms @ 4MHz
-        delay(d);
-        TX = 0; // LED Off
-        delay(d);
-        //blink--;
+    while (1) {//Continuosly send message
+        if(transmit(message[i])) continue;
+        i++;
+        if (i == sizeof(message)) i = 0;
     }
 }
 
 void UART_start_bit()
 {
+    //Interrupt disabled when ongoing tx, thus we know that no
+    //tx is in progress.
     uint8_t rx = RX;
     if (!rx) {
         //blink = 2;
+        uart.rx_buf = 0;//Clear buffer
+        uart.next_rx = 1;//Waiting for bit 1
         TMR2 = 0;
         T2CONbits.TMR2ON = 1;
-        uart.rx_buf = 0;
-        uart.next_rx = 1;//Next mask is 0x01
         IOCBbits.IOCB4 = 0;
     }
     INTCONbits.RABIF = 0;//Clear flag
@@ -77,12 +88,52 @@ void UART_start_bit()
 
 void UART_rx()
 {
-    if(RX) uart.rx_buf |= uart.next_rx;
-    uart.next_rx <<= 1;
-    blink++;
-    if (!uart.next_rx){//Last one
+    if (uart.next_rx == 0xff){//Waiting on stop bit
+        //Transmission only succesful if stop bit high. IOC reenabled
+        //in either case
+        if(RX) rx_done();
+        uart.next_rx = 0;//Ready
         T2CONbits.TMR2ON = 0;
         IOCBbits.IOCB4 = 1;
+    } else {//Waiting on data bit
+        if(RX) uart.rx_buf |= uart.next_rx;//Receive data bit n
+        uart.next_rx <<= 1;//Wait for next bit
+        //blink++;
+        if (!uart.next_rx) uart.next_rx = 0xff;//Now wait for stop bit
+    }
+    PIR1bits.TMR2IF = 0;
+}
+
+void rx_done()
+{
+    ;
+}
+
+int transmit(uint8_t word)
+{
+    //Ensure no pending receive or transmit operation
+    if(uart.next_rx || uart.next_rx) return 1;
+
+    IOCBbits.IOCB4 = 0;//Disable IOC interrupt during tx
+    TX = 0;//Start bit
+    uart.next_tx = 1;
+    uart.tx_send = word;
+    TMR2 = 0;
+    T2CONbits.TMR2ON = 1;
+    return 0;
+}
+
+void UART_tx()
+{
+    if (uart.next_tx == 0xff){//Waiting to send stop bit
+        TX = 1;//Stop bit high
+        uart.next_tx = 0;//Ready
+        T2CONbits.TMR2ON = 0;
+        IOCBbits.IOCB4 = 1;//Reenable IOC for rx
+    } else {//Waiting to send data bit
+        TX = uart.tx_send & uart.next_tx;//Send data bit n
+        uart.next_tx <<= 1;//Wait for next bit
+        if (!uart.next_tx) uart.next_tx = 0xff;//Now wait for stop bit
     }
     PIR1bits.TMR2IF = 0;
 }
@@ -90,7 +141,10 @@ void UART_rx()
 void Itr_Routine(void) __interrupt 0
 {
     if (INTCONbits.RABIF) UART_start_bit();
-    if (PIR1bits.TMR2IF) UART_rx();
+    if (PIR1bits.TMR2IF) {
+        if(uart.next_rx) UART_rx();
+        else UART_tx();//Else assume tx
+    }
 }
 
 void setup()
