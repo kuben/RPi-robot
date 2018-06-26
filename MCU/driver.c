@@ -3,6 +3,7 @@
 #define NO_LEGACY_DEFINES
 #include <pic14regs.h>//<pic16f685.h>
 #include <stdint.h>
+#include <string.h>
 
 // Oscillator Selection bits (INTOSCIO oscillator: I/O function on RA6/OSC2/CLKOUT pin, I/O function on RA7/OSC1/CLKIN),
 // disable watchdog,
@@ -16,9 +17,15 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
 #define RX PORTBbits.RB4
 #define RX_TRIS TRISBbits.TRISB4
 
+#define NOP __asm__ ("nop")
+#define TNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
+#define NNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
+
 void setup();
 void rx_done();
 int transmit(uint8_t word);
+void UART_tx();
+void UART_start_bit();
 
 // Uncalibrated delay, just waits a number of for-loop iterations
 void delay(uint16_t iterations)
@@ -53,10 +60,11 @@ struct uart_struct {
 };
 volatile struct uart_struct uart = {0};
 
-void main(void)
+    void main(void)
 {
     uint8_t i = 0;
-    const char *message = "Hello World!\n";
+    const uint8_t *message = "Hello World!\n";
+    const size_t m_len = 13;
     setup();
 
 
@@ -66,7 +74,7 @@ void main(void)
     while (1) {//Continuosly send message
         if(transmit(message[i])) continue;
         i++;
-        if (i == sizeof(message)) i = 0;
+        if (i == m_len) i = 0;
     }
 }
 
@@ -112,28 +120,35 @@ void rx_done()
 int transmit(uint8_t word)
 {
     //Ensure no pending receive or transmit operation
-    if(uart.next_rx || uart.next_rx) return 1;
+    if(uart.next_tx || uart.next_rx) return 1;
 
     IOCBbits.IOCB4 = 0;//Disable IOC interrupt during tx
     TX = 0;//Start bit
-    uart.next_tx = 1;
+    uart.next_tx = 0x01;
     uart.tx_send = word;
     TMR2 = 0;
+    blink = 0;
     T2CONbits.TMR2ON = 1;
     return 0;
 }
 
 void UART_tx()
 {
-    if (uart.next_tx == 0xff){//Waiting to send stop bit
+    if (uart.next_tx == 0xfe){//Waiting to send stop bit
         TX = 1;//Stop bit high
+        uart.next_tx = 0xff;
+    } else if (uart.next_tx == 0xff){//Wait before ready
         uart.next_tx = 0;//Ready
         T2CONbits.TMR2ON = 0;
         IOCBbits.IOCB4 = 1;//Reenable IOC for rx
     } else {//Waiting to send data bit
-        TX = uart.tx_send & uart.next_tx;//Send data bit n
-        uart.next_tx <<= 1;//Wait for next bit
-        if (!uart.next_tx) uart.next_tx = 0xff;//Now wait for stop bit
+        //uart.next_tx = 1<<blink;
+        TX = (uart.tx_send & (1<<blink)) > 0;//Send data bit n
+        //TX = (uart.tx_send & uart.next_tx) > 0;//Send data bit n
+        //if(uart.next_tx < 0x80) uart.next_tx = uart.next_tx<<1;//Wait for next bit
+        if(blink < 7) uart.next_tx = uart.next_tx<<1;//Wait for next bit
+        else uart.next_tx = 0xfe;//Now wait for stop bit
+        blink++;
     }
     PIR1bits.TMR2IF = 0;
 }
@@ -166,16 +181,19 @@ void setup()
 
     INTCONbits.GIE = 1;//Enable global interrupts
     INTCONbits.PEIE = 1;//Enable peripheral interrupts
-    INTCONbits.RABIE = 1;//Enable interrupts on RA and RB
+    //INTCONbits.RABIE = 1;//Enable interrupts on RA and RB
     //Setup IOC
     RX_TRIS = 1;
     blink += 2*RX;
 //    WPUBbits.WPUB4 = 1;//Weak pull-up
     IOCBbits.IOCB4 = 1;//Interrupt on RB4 change
-
     //Setup Timer 2 (baud rate timing)
     T2CON = 0;
-    PR2 = 35-1;//114286 baud
-    PR2 = 9-1;//111111 baud
+    T2CONbits.T2CKPS = 2;
+    //T2CONbits.TOUTPS = 5;
+    //PR2 = 35-1;//114286 baud
+    //PR2 = 9-1;//111111 baud
+    PR2 = 16;//104-1;//9600 baud
+    PR2 = 16;//104-1;//9600 baud
     PIE1bits.TMR2IE = 1;
 }
