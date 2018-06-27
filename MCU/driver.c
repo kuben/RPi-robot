@@ -3,7 +3,6 @@
 #define NO_LEGACY_DEFINES
 #include <pic14regs.h>//<pic16f685.h>
 #include <stdint.h>
-#include <string.h>
 
 // Oscillator Selection bits (INTOSCIO oscillator: I/O function on RA6/OSC2/CLKOUT pin, I/O function on RA7/OSC1/CLKIN),
 // disable watchdog,
@@ -22,7 +21,7 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
 #define NNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
 
 void setup();
-void rx_done();
+void rx_done(uint8_t word);
 int transmit(uint8_t word);
 void UART_tx();
 void UART_start_bit();
@@ -38,6 +37,7 @@ void delay(uint16_t iterations)
 }
 
 volatile uint8_t blink = 1;
+volatile uint8_t message[20];
 
 /*
  * uart: low start bit - eight data bits - high stop bit
@@ -60,21 +60,26 @@ struct uart_struct {
 };
 volatile struct uart_struct uart = {0};
 
-    void main(void)
+void strcpy(uint8_t *dest, const uint8_t *src)
+{
+     while(*src) {
+        *dest = *src;
+        src++;
+        dest++;
+    }
+    *dest = *src;
+}
+
+void main(void)
 {
     uint8_t i = 0;
-    const uint8_t *message = "Hello World!\n";
-    const size_t m_len = 13;
     setup();
 
-
-    TX_TRIS = 0; // Pin as output
-    TX = 1;//tx idles high
-
+    strcpy(message,"Hello!\n");
     while (1) {//Continuosly send message
         if(transmit(message[i])) continue;
         i++;
-        if (i == m_len) i = 0;
+        if (!message[i] || i == sizeof(message)) i = 0;
     }
 }
 
@@ -99,7 +104,7 @@ void UART_rx()
     if (uart.next_rx == 0xff){//Waiting on stop bit
         //Transmission only succesful if stop bit high. IOC reenabled
         //in either case
-        if(RX) rx_done();
+        if(RX) rx_done(uart.rx_buf);
         uart.next_rx = 0;//Ready
         T2CONbits.TMR2ON = 0;
         IOCBbits.IOCB4 = 1;
@@ -112,9 +117,17 @@ void UART_rx()
     PIR1bits.TMR2IF = 0;
 }
 
-void rx_done()
+char num2char(uint8_t num)
 {
-    ;
+    return 48+num;//ASCII 48 is '0'
+}
+void rx_done(uint8_t word)
+{
+    strcpy(message, "Received:   [    ]!\n");
+    message[10] = word;
+    message[13] = num2char(word/100);
+    message[14] = num2char((word%100)/10);
+    message[15] = num2char(word%10);
 }
 
 int transmit(uint8_t word)
@@ -181,19 +194,20 @@ void setup()
 
     INTCONbits.GIE = 1;//Enable global interrupts
     INTCONbits.PEIE = 1;//Enable peripheral interrupts
-    //INTCONbits.RABIE = 1;//Enable interrupts on RA and RB
+    INTCONbits.RABIE = 1;//Enable interrupts on RA and RB
     //Setup IOC
     RX_TRIS = 1;
-    blink += 2*RX;
-//    WPUBbits.WPUB4 = 1;//Weak pull-up
     IOCBbits.IOCB4 = 1;//Interrupt on RB4 change
+
+    TX_TRIS = 0; // Pin as output
+    TX = 1;//tx idles high
+
     //Setup Timer 2 (baud rate timing)
     T2CON = 0;
     T2CONbits.T2CKPS = 2;
     //T2CONbits.TOUTPS = 5;
     //PR2 = 35-1;//114286 baud
     //PR2 = 9-1;//111111 baud
-    PR2 = 16;//104-1;//9600 baud
     PR2 = 16;//104-1;//9600 baud
     PIE1bits.TMR2IE = 1;
 }
