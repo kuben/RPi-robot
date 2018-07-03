@@ -7,8 +7,12 @@ blink_led.hex: blink
 
 all: driver
 
-driver: driver.c
-	$(CC) $(CFLAGS) -o driver driver.c
+driver: driver.o utils.o
+	$(CC) $(CFLAGS) -o driver driver.o utils.o
+
+utils.o: utils.c
+	$(CC) $(CFLAGS) -c utils utils.c
+
 
 blink: blink_led.c
 	$(CC) $(CFLAGS) -o blink_led blink_led.c
