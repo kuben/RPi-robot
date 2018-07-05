@@ -43,8 +43,8 @@ void UART_start_bit();
 
 volatile uint8_t l_speed = 0, r_speed = 0;
 
-volatile uint8_t blink = 1;
 volatile uint8_t message[20];
+volatile uint8_t print = 0;
 
 /*
  * uart: low start bit - eight data bits - high stop bit
@@ -77,12 +77,12 @@ void main(void)
 
     strcpy(message,"\n\nBooted!\n");
     while (1) {//Continuosly send message
-        if(message[0] == 0) continue;//Don't print empty message
+        if(print == 0) continue;//Don't print same message
         if(transmit(message[i])) continue;
         i++;
         if (!message[i] || i == sizeof(message)){
-            //message[0] = 0;
             i = 0;
+            print = 0;
         }
     }
 }
@@ -93,7 +93,6 @@ void UART_start_bit()
     //tx is in progress.
     uint8_t rx = RX;
     if (!rx) {
-        //blink = 2;
         uart.rx_buf = 0;//Clear buffer
         uart.next_rx = 1;//Waiting for bit 1
         TMR2 = 0;
@@ -114,9 +113,8 @@ void UART_rx()
         IOCBbits.IOCB4 = 1;
     } else {//Waiting on data bit
         if(RX) uart.rx_buf |= uart.next_rx;//Receive data bit n
-        uart.next_rx <<= 1;//Wait for next bit
-        //blink++;
-        if (!uart.next_rx) uart.next_rx = 0xff;//Now wait for stop bit
+        if(uart.next_rx < 0x80) uart.next_rx = uart.next_rx << 1;//Wait for next bit
+        else uart.next_rx = 0xff;
     }
     PIR1bits.TMR2IF = 0;
 }
@@ -140,6 +138,7 @@ void rx_done(uint8_t word)
     message[14] = num2char((word%100)/10);
     message[15] = num2char(word%10);
 
+    print = 1;
     return;
     if ((word & 0xc0) == 0xc0){
         //Request
@@ -191,7 +190,6 @@ int transmit(uint8_t word)
     uart.next_tx = 0x01;
     uart.tx_send = word;
     TMR2 = 0;
-    blink = 0;
     T2CONbits.TMR2ON = 1;
     return 0;
 }
@@ -207,15 +205,10 @@ void UART_tx()
         T2CONbits.TMR2ON = 0;
         IOCBbits.IOCB4 = 1;//Reenable IOC for rx
     } else {//Waiting to send data bit
-        //uart.next_tx = 1<<blink;
-        nexttx = (1<<blink);
-        TX = (uart.tx_send & (1<<blink)) > 0;//Send data bit n
-        //TX = (uart.tx_send & uart.next_tx) > 0;//Send data bit n
-        //TX = (uart.tx_send & nexttx) > 0;//Send data bit n
-        //if(uart.next_tx < 0x80) uart.next_tx = uart.next_tx<<1;//Wait for next bit
-        if(blink < 7) uart.next_tx = uart.next_tx<<1;//Wait for next bit
+        if (uart.tx_send & uart.next_tx) TX = 1;//Send data bit n
+        else TX = 0;
+        if(uart.next_tx < 0x80) uart.next_tx = uart.next_tx<<1;//Wait for next bit
         else uart.next_tx = 0xfe;//Now wait for stop bit
-        blink++;
     }
     PIR1bits.TMR2IF = 0;
 }
@@ -259,7 +252,7 @@ void setup()
     //Setup Timer 2 (baud rate timing)
     T2CON = 0;
     T2CONbits.T2CKPS = 1; //1200 baud
-    PR2 = 67;
+    PR2 = 68;//67;
     PIE1bits.TMR2IE = 1;
 
     //Setup Right,Left Forward, Reverse and Enable as ouputs
