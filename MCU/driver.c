@@ -36,15 +36,17 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
 #define NNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
 
 void setup();
+void setup_tmr_pwm();
+void setup_tmr_uart();
 void rx_done(uint8_t word);
 int transmit(uint8_t word);
 void UART_tx();
 void UART_start_bit();
 
-volatile uint8_t l_speed = 0, r_speed = 0;
+volatile uint8_t l_speed = 15, r_speed = 15;
 
 volatile uint8_t message[20];
-volatile uint8_t print = 0;
+volatile uint8_t print = 1;
 
 /*
  * uart: low start bit - eight data bits - high stop bit
@@ -77,6 +79,14 @@ void main(void)
 
     strcpy(message,"\n\nBooted!\n");
     while (1) {//Continuosly send message
+        //No PWM when receiving or transmitting
+        if(uart.next_rx || uart.next_tx) continue;
+
+        if (TMR2 < l_speed) LEN = 1;
+        else LEN = 0;
+        if (TMR2 < r_speed) REN = 1;
+        else REN = 0;
+
         if(print == 0) continue;//Don't print same message
         if(transmit(message[i])) continue;
         i++;
@@ -95,9 +105,8 @@ void UART_start_bit()
     if (!rx) {
         uart.rx_buf = 0;//Clear buffer
         uart.next_rx = 1;//Waiting for bit 1
-        TMR2 = 0;
-        T2CONbits.TMR2ON = 1;
         IOCBbits.IOCB4 = 0;
+        setup_tmr_uart();
     }
     INTCONbits.RABIF = 0;//Clear flag
 }
@@ -109,7 +118,7 @@ void UART_rx()
         //in either case
         if(RX) rx_done(uart.rx_buf);
         uart.next_rx = 0;//Ready
-        T2CONbits.TMR2ON = 0;
+        setup_tmr_pwm();
         IOCBbits.IOCB4 = 1;
     } else {//Waiting on data bit
         if(RX) uart.rx_buf |= uart.next_rx;//Receive data bit n
@@ -189,20 +198,18 @@ int transmit(uint8_t word)
     TX = 0;//Start bit
     uart.next_tx = 0x01;
     uart.tx_send = word;
-    TMR2 = 0;
-    T2CONbits.TMR2ON = 1;
+    setup_tmr_uart();
     return 0;
 }
 
 void UART_tx()
 {
-    uint8_t nexttx;
     if (uart.next_tx == 0xfe){//Waiting to send stop bit
         TX = 1;//Stop bit high
         uart.next_tx = 0xff;
     } else if (uart.next_tx == 0xff){//Wait before ready
         uart.next_tx = 0;//Ready
-        T2CONbits.TMR2ON = 0;
+        setup_tmr_pwm();
         IOCBbits.IOCB4 = 1;//Reenable IOC for rx
     } else {//Waiting to send data bit
         if (uart.tx_send & uart.next_tx) TX = 1;//Send data bit n
@@ -249,12 +256,6 @@ void setup()
     TX_TRIS = 0; // Pin as output
     TX = 1;//tx idles high
 
-    //Setup Timer 2 (baud rate timing)
-    T2CON = 0;
-    T2CONbits.T2CKPS = 1; //1200 baud
-    PR2 = 68;//67;
-    PIE1bits.TMR2IE = 1;
-
     //Setup Right,Left Forward, Reverse and Enable as ouputs
     RF_TRIS = 0;
     RR_TRIS = 0;
@@ -263,10 +264,33 @@ void setup()
     LR_TRIS = 0;
     LEN_TRIS = 0;
 
-    RF = 0;
+    RF = 1;//Forward
     RR = 0;
     REN = 0;
-    LF = 0;
+    LF = 1;
     LR = 0;
     LEN = 0;
+
+    //Setup and start timer 2 for pwm
+    setup_tmr_pwm();
+}
+
+void setup_tmr_pwm()
+{
+    T2CON = 0;
+    TMR2 = 0;
+    T2CONbits.T2CKPS = 1;
+    PR2 = 30;
+    PIE1bits.TMR2IE = 0;
+    T2CONbits.TMR2ON = 1;
+}
+
+void setup_tmr_uart()
+{
+    T2CON = 0;
+    TMR2 = 0;
+    T2CONbits.T2CKPS = 1; //1200 baud
+    PR2 = 68;//67;
+    PIE1bits.TMR2IE = 1;
+    T2CONbits.TMR2ON = 1;
 }
