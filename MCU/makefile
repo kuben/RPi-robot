@@ -1,4 +1,4 @@
-CFLAGS = --use-non-free -mpic14 -p16f685 --std-c11
+CFLAGS = --use-non-free -mpic14 -p16f685 --std-c11 --opt-code-speed --cyclomatic
 CC = sdcc
 
 default: all
@@ -11,7 +11,7 @@ driver: driver.o utils.o
 	$(CC) $(CFLAGS) -o driver driver.o utils.o
 
 utils.o: utils.c
-	$(CC) $(CFLAGS) -c utils utils.c
+	$(CC) $(CFLAGS) -co utils.o utils.c
 
 
 blink: blink_led.c

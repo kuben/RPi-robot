@@ -25,8 +25,8 @@ int num2str(uint8_t num, char *str, uint8_t *len)
         length = 3;
         str[0] = num2char(digits[1]);
         str[1] = num2char(digits[2]);
-
-    } else
+    }
+    else
     {
         length = 1;
         str[0] = num2char(digits[2]);

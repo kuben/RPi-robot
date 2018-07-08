@@ -73,11 +73,6 @@ void main(void)
     uint8_t i = 0;
     setup();
 
-    //Both outputs forward
-    LF = 1;
-    RF = 1;
-
-    strcpy(message,"\n\nBooted!\n");
     while (1) {//Continuosly send message
         //No PWM when receiving or transmitting
         if(uart.next_rx || uart.next_tx) continue;
@@ -86,7 +81,7 @@ void main(void)
         else LEN = 0;
         if (TMR2 < r_speed) REN = 1;
         else REN = 0;
-
+continue;
         if(print == 0) continue;//Don't print same message
         if(transmit(message[i])) continue;
         i++;
@@ -103,10 +98,10 @@ void UART_start_bit()
     //tx is in progress.
     uint8_t rx = RX;
     if (!rx) {
+        setup_tmr_uart();
         uart.rx_buf = 0;//Clear buffer
         uart.next_rx = 1;//Waiting for bit 1
         IOCBbits.IOCB4 = 0;
-        setup_tmr_uart();
     }
     INTCONbits.RABIF = 0;//Clear flag
 }
@@ -140,15 +135,6 @@ void UART_rx()
  */
 void rx_done(uint8_t word)
 {
-    strcpy(message, "Received:   [    ]!\n");
-    message[10] = word;
-    num2str(word,message+13,0);
-    message[13] = num2char(word/100);
-    message[14] = num2char((word%100)/10);
-    message[15] = num2char(word%10);
-
-    print = 1;
-    return;
     if ((word & 0xc0) == 0xc0){
         //Request
         return;
@@ -187,6 +173,14 @@ void rx_done(uint8_t word)
         }
         l_speed = word & 0x1f;
     }
+    strcpy(message, "  [   ]      !\n");
+    message[0] = word;
+    num2str(word,message+3,0);
+    num2str(l_speed,message+8,0);
+    num2str(r_speed,message+11,0);
+
+    print = 1;
+    return;
 }
 
 int transmit(uint8_t word)
@@ -195,10 +189,10 @@ int transmit(uint8_t word)
     if(uart.next_tx || uart.next_rx) return 1;
 
     IOCBbits.IOCB4 = 0;//Disable IOC interrupt during tx
+    setup_tmr_uart();
     TX = 0;//Start bit
     uart.next_tx = 0x01;
     uart.tx_send = word;
-    setup_tmr_uart();
     return 0;
 }
 
@@ -279,7 +273,8 @@ void setup_tmr_pwm()
 {
     T2CON = 0;
     TMR2 = 0;
-    T2CONbits.T2CKPS = 1;
+    T2CONbits.T2CKPS = 2;
+    T2CONbits.TOUTPS = 0;
     PR2 = 30;
     PIE1bits.TMR2IE = 0;
     T2CONbits.TMR2ON = 1;
@@ -291,6 +286,7 @@ void setup_tmr_uart()
     TMR2 = 0;
     T2CONbits.T2CKPS = 1; //1200 baud
     PR2 = 68;//67;
+    PIR1bits.TMR2IF = 0;
     PIE1bits.TMR2IE = 1;
     T2CONbits.TMR2ON = 1;
 }
