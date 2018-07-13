@@ -19,14 +19,15 @@ static void pabort(const char *s)
 	abort();
 }
 
+#ifdef __arm__
 static const float V_ref = 3.3;
-static const char *device = "/dev/spidev0.0";
-static uint32_t mode;
-static uint8_t bits = 8;
-static uint32_t speed = 1350000;
+static const char *spi_device = "/dev/spidev0.0";
+static uint32_t spi_mode;
+static uint8_t spi_bits = 8;
+static uint32_t spi_speed = 1350000;
 static uint16_t delay;
 
-static void transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
+static void spi_transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
 {
 	int ret;
 	int out_fd;
@@ -35,8 +36,8 @@ static void transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
 		.rx_buf = (unsigned long)rx,
 		.len = len,
 		.delay_usecs = delay,
-		.speed_hz = speed,
-		.bits_per_word = bits,
+		.speed_hz = spi_speed,
+		.bits_per_word = spi_bits,
 	};
 
 	if (mode & SPI_TX_QUAD)
@@ -77,40 +78,40 @@ int read_mcp3008(int channel, float *voltage)
         pabort(str);
     }
 
-	fd = open(device, O_RDWR);
+	fd = open(spi_device, O_RDWR);
 	if (fd < 0)
 		pabort("can't open device");
 
 	/*
 	 * spi mode
 	 */
-	ret = ioctl(fd, SPI_IOC_WR_MODE32, &mode);
+	ret = ioctl(fd, SPI_IOC_WR_MODE32, &spi_mode);
 	if (ret == -1)
 		pabort("can't set spi mode");
 
-	ret = ioctl(fd, SPI_IOC_RD_MODE32, &mode);
+	ret = ioctl(fd, SPI_IOC_RD_MODE32, &spi_mode);
 	if (ret == -1)
 		pabort("can't get spi mode");
 
 	/*
 	 * bits per word
 	 */
-	ret = ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &bits);
+	ret = ioctl(fd, SPI_IOC_WR_BITS_PER_WORD, &spi_bits);
 	if (ret == -1)
 		pabort("can't set bits per word");
 
-	ret = ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &bits);
+	ret = ioctl(fd, SPI_IOC_RD_BITS_PER_WORD, &spi_bits);
 	if (ret == -1)
 		pabort("can't get bits per word");
 
 	/*
 	 * max speed hz
 	 */
-	ret = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &speed);
+	ret = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &spi_speed);
 	if (ret == -1)
 		pabort("can't set max speed hz");
 
-	ret = ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &speed);
+	ret = ioctl(fd, SPI_IOC_RD_MAX_SPEED_HZ, &spi_speed);
 	if (ret == -1)
 		pabort("can't get max speed hz");
 
@@ -121,7 +122,7 @@ int read_mcp3008(int channel, float *voltage)
     char tx_pattern[] = { 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0 };
     uint8_t tx[] = { 0x01, tx_pattern[channel], 0x00 };
     uint8_t rx[ARRAY_SIZE(tx)] = {0, };
-	transfer(fd, tx, rx, sizeof(tx));
+	spi_transfer(fd, tx, rx, sizeof(tx));
 
     uint16_t left_response = ((uint16_t)(rx[1] & 3) << 8) + rx[2];
     *voltage = V_ref*left_response/1024;
@@ -131,4 +132,99 @@ int read_mcp3008(int channel, float *voltage)
 	close(fd);
 
 	return ret;
+}
+#endif
+
+int uart0_filestream = -1;
+
+int open_uart()
+{
+	//At bootup, pins 8 and 10 are already set to UART0_TXD, UART0_RXD (ie the alt0 function) respectively
+	uart0_filestream = -1;
+
+	//	O_NDELAY / O_NONBLOCK (same function) - Enables nonblocking mode. When set
+    //	read requests on the file can return immediately with a failure status
+	//	if there is no input immediately available (instead of blocking). Likewise,
+    //	write requests can also return immediately with a failure status if the
+    //	output can't be written immediately.
+	//
+	//	O_NOCTTY - When set and path identifies a terminal device, open() shall not cause the terminal device to become the controlling terminal for the process.
+	uart0_filestream = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_NDELAY);
+	if (uart0_filestream == -1)
+	{
+		//ERROR - CAN'T OPEN SERIAL PORT
+		printf("Error - Unable to open UART.  Ensure it is not in use by another application\n");
+        return 1;
+	}
+
+	//CONFIGURE THE UART
+	//The flags (defined in /usr/include/termios.h - see http://pubs.opengroup.org/onlinepubs/007908799/xsh/termios.h.html):
+	//	Baud rate:- B1200, B2400, B4800, B9600, B19200, B38400, B57600, B115200, B230400, B460800, B500000, B576000, B921600, B1000000, B1152000, B1500000, B2000000, B2500000, B3000000, B3500000, B4000000
+	//	CSIZE:- CS5, CS6, CS7, CS8
+	//	CLOCAL - Ignore modem status lines
+	//	CREAD - Enable receiver
+	//	IGNPAR = Ignore characters with parity errors
+	//	ICRNL - Map CR to NL on input (Use for ASCII comms where you want to auto correct end of line characters - don't use for bianry comms!)
+	//	PARENB - Parity enable
+	//	PARODD - Odd parity (else even)
+	struct termios options;
+	tcgetattr(uart0_filestream, &options);
+	options.c_cflag = B1200 | CS8 | CLOCAL | CREAD;		//<Set baud rate
+	options.c_iflag = IGNPAR;
+	options.c_oflag = 0;
+	options.c_lflag = 0;
+	tcflush(uart0_filestream, TCIFLUSH);
+	tcsetattr(uart0_filestream, TCSANOW, &options);
+
+    return 0;
+}
+
+int tx_uart(){
+	unsigned char tx_buffer[20];
+	unsigned char *p_tx_buffer;
+
+	p_tx_buffer = &tx_buffer[0];
+	*p_tx_buffer++ = 'H';
+	*p_tx_buffer++ = 'e';
+	*p_tx_buffer++ = 'l';
+	*p_tx_buffer++ = 'l';
+	*p_tx_buffer++ = 'o';
+
+	if (uart0_filestream != -1)
+	{
+        //Filestream, bytes to write, number of bytes to write
+		int count = write(uart0_filestream, &tx_buffer[0], (p_tx_buffer - &tx_buffer[0]));
+		if (count < 0)
+		{
+			printf("UART TX error\n");
+		}
+	}
+    return 0;
+}
+
+int rx_uart()
+{
+
+	//----- CHECK FOR ANY RX BYTES -----
+	if (uart0_filestream != -1)
+	{
+		// Read up to 255 characters from the port if they are there
+        unsigned char rx_buffer[256];
+		int rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
+		if (rx_length < 0)
+		{
+			//An error occured (will occur if there are no bytes)
+		}
+		else if (rx_length == 0)
+		{
+			//No data waiting
+		}
+		else
+		{
+			//Bytes received
+			rx_buffer[rx_length] = '\0';
+			printf("%i bytes read : %s\n", rx_length, rx_buffer);
+		}
+	}
+    return 0;
 }

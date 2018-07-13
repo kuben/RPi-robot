@@ -15,12 +15,15 @@
 
 #include "spi_lib.h"
 #include "utils.h"
+#ifdef __arm__
 #include "analog_sample.h"
 
 #define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
-#define NSLEEPDELAY 65129
 #define PIN_PROX 3
+#endif
+#define NSLEEPDELAY 65129
 
+#ifdef __arm__
 struct query_arg_struct
 {
   float *battery_voltage;
@@ -28,6 +31,8 @@ struct query_arg_struct
   double *rpm_l;
   int *running;
 };
+void *query_adc(void *arguments);
+#endif
 
 void set_max(double *val, double max);
 void set_min(double *val, double min);
@@ -54,8 +59,8 @@ int main(int argc, char **argv)
   double *duty_l = malloc(sizeof(double));
   double *duty_r = malloc(sizeof(double));
   double *rpm_r = malloc(sizeof(double));
-  double *rpm_l = malloc(sizeof(double))
-  float *battery_voltage = malloc(sizeof(float))
+  double *rpm_l = malloc(sizeof(double));
+  float *battery_voltage = malloc(sizeof(float));
 
   *duty_l = 0.0;//(double){atof(argv[1])};
   *duty_r = 0.0;//(double){atof(argv[2])};
@@ -63,15 +68,18 @@ int main(int argc, char **argv)
   *rpm_l = 0.0;
   *battery_voltage = 0.0;
 
+#ifdef __arm__
+  INP_GPIO(PIN_PROX);
   //double temp;
 
   pthread_t query_thread;//Only one thread PIC for information
 
-  struct rpm_arg_struct *args_query = malloc(sizeof(struct query_arg_struct));
+  struct query_arg_struct *args_query = malloc(sizeof(struct query_arg_struct));
   *args_query = (struct query_arg_struct){.battery_voltage = battery_voltage,
         .rpm_r = rpm_r, .rpm_l = rpm_l, .running = running};
 
   create_thread(&query_thread, query_adc, (void *)args_query);
+#endif
 
   /* Initialize Curses*/
   initscr();
@@ -79,7 +87,6 @@ int main(int argc, char **argv)
   raw();
   timeout(100);//Refresh every 0.1s
   int mode = 0;//0 - Increments, 1 - Hold for speed
-  INP_GPIO(PIN_PROX);
 
   while (*running)
   {
@@ -89,7 +96,7 @@ int main(int argc, char **argv)
 
     format_motor_text(l_text,sizeof(l_text),duty_l);
     format_motor_text(r_text,sizeof(r_text),duty_r);
-    snprintf(status_text, 50, "%lf", *batter_voltage);
+    snprintf(status_text, 50, "%lf", *battery_voltage);
     mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s  (mode %d)\n",l_text,r_text,status_text,mode);
 
     snprintf(l_text, 10, "%lf", *rpm_r);
@@ -135,8 +142,11 @@ int main(int argc, char **argv)
   }
 
   endwin();
+#ifdef __arm__
   //Unneccessary
   pthread_join( query_thread, NULL);
+  free(args_query);
+#endif
 
   free(running);
   free(duty_l);
@@ -144,7 +154,6 @@ int main(int argc, char **argv)
   free(rpm_l);
   free(rpm_r);
   free(battery_voltage);
-  free(args_query);
 
   free_io();
   exit(EXIT_SUCCESS);
@@ -299,6 +308,13 @@ int keypress_mode_dynamic (char c, double *l_val, double *r_val,
   }
   return 0;
 }
+
+#ifdef __arm__
+void *query_adc(void *arguments)
+{
+
+}
+#endif
 
 void set_max(double *val, double max)
 {
