@@ -11,7 +11,7 @@
  * Cross-compile with cross-gcc -I/path/to/cross-kernel/include
  */
 
-#include "spi_lib.h"
+#include "serial_lib.h"
 
 static void pabort(const char *s)
 {

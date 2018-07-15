@@ -1,6 +1,6 @@
 #include "analog_sample.h"
 #include "utils.h"
-#include "spi_lib.h"
+#include "serial_lib.h"
 
 #include <unistd.h>
 #include <stdio.h>

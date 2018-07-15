@@ -13,7 +13,7 @@
 #include <curses.h>
 #include <math.h>
 
-#include "spi_lib.h"
+#include "serial_lib.h"
 #include "utils.h"
 #ifdef __arm__
 #include "analog_sample.h"
@@ -50,9 +50,6 @@ char debug_text[100] = { 0 };
 int *running;
 int main(int argc, char **argv)
 {
-  // Set up gpi pointer for direct register access
-  setup_io();
-
   running = malloc(sizeof(int));
   *running = 1;
 
@@ -69,6 +66,9 @@ int main(int argc, char **argv)
   *battery_voltage = 0.0;
 
 #ifdef __arm__
+  // Set up gpi pointer for direct register access
+  setup_io();
+
   INP_GPIO(PIN_PROX);
   //double temp;
 
@@ -122,7 +122,9 @@ int main(int argc, char **argv)
     move(3,0);
     int c = getch();
     if (c==-1) continue;//No input
+#ifdef __arm__
     if (c=='l') open_oscilloscope();
+#endif
     if (mode == 0)
     {
       int res = keypress_mode_stepwise(c, duty_l, duty_r, 0.1, 0.0, 1.0);
@@ -143,6 +145,7 @@ int main(int argc, char **argv)
 
   endwin();
 #ifdef __arm__
+  free_io();
   //Unneccessary
   pthread_join( query_thread, NULL);
   free(args_query);
@@ -155,7 +158,6 @@ int main(int argc, char **argv)
   free(rpm_r);
   free(battery_voltage);
 
-  free_io();
   exit(EXIT_SUCCESS);
 
   return 0;

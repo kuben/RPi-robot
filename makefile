@@ -5,12 +5,12 @@ OBJECTS = RPitest.o utils.o rpm_sensor.o spi_lib.o analog_sample.o
 
 default: all
 
-all: RPitest
+all: RPi-robot
 
 RPitest: $(OBJECTS)
-	$(CC) $(CFLAGS) -o RPitest $(OBJECTS)
+	$(CC) $(CFLAGS) -o RPi-robot $(OBJECTS)
 
 %.o: %.c $(DEPS)#Depends on all .h files now, unneccessary
 	$(CC) -c $< $(CFLAGS) -o $@
 clean:
-	rm -f RPitest
+	rm -f *.o
