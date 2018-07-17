@@ -40,18 +40,18 @@ static void spi_transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t le
 		.bits_per_word = spi_bits,
 	};
 
-	if (mode & SPI_TX_QUAD)
+	if (spi_mode & SPI_TX_QUAD)
 		tr.tx_nbits = 4;
-	else if (mode & SPI_TX_DUAL)
+	else if (spi_mode & SPI_TX_DUAL)
 		tr.tx_nbits = 2;
-	if (mode & SPI_RX_QUAD)
+	if (spi_mode & SPI_RX_QUAD)
 		tr.rx_nbits = 4;
-	else if (mode & SPI_RX_DUAL)
+	else if (spi_mode & SPI_RX_DUAL)
 		tr.rx_nbits = 2;
-	if (!(mode & SPI_LOOP)) {
-		if (mode & (SPI_TX_QUAD | SPI_TX_DUAL))
+	if (!(spi_mode & SPI_LOOP)) {
+		if (spi_mode & (SPI_TX_QUAD | SPI_TX_DUAL))
 			tr.rx_buf = 0;
-		else if (mode & (SPI_RX_QUAD | SPI_RX_DUAL))
+		else if (spi_mode & (SPI_RX_QUAD | SPI_RX_DUAL))
 			tr.tx_buf = 0;
 	}
 
@@ -137,7 +137,7 @@ int read_mcp3008(int channel, float *voltage)
 
 int uart0_filestream = -1;
 #ifdef __arm__
-static const char *uart_device = "/dev/spidev0.0";
+static const char *uart_device = "/dev/ttyAMA0";
 #else
 static const char *uart_device = "/dev/ttyUSB0";
 #endif
