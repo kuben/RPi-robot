@@ -36,4 +36,9 @@ void *read_sensors(void *arguments);
 int read_mcp3008(int channel, float *voltage);
 #endif
 
+int open_uart();
+void close_uart();
+int tx_uart(char word);
+int rx_uart(char *word);
+
 #endif

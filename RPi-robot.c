@@ -39,6 +39,7 @@ void set_min(double *val, double min);
 void increase_by(double *val, double inc, double min, double max);
 
 void manual_input(double *duty_l, double *duty_r);
+void send_over_uart();
 int format_motor_text(char *text, int length, double *duty_cycle);
 
 int keypress_mode_stepwise(char c, double *l_val, double *r_val,
@@ -125,6 +126,7 @@ int main(int argc, char **argv)
 #ifdef __arm__
     if (c=='l') open_oscilloscope();
 #endif
+    if (c=='u') send_over_uart();
     if (mode == 0)
     {
       int res = keypress_mode_stepwise(c, duty_l, duty_r, 0.1, 0.0, 1.0);
@@ -347,6 +349,22 @@ void manual_input(double *duty_l, double *duty_r)
   printf("Set duty cycle of right motor: ");
   fflush(stdout);
   scanf("%lf",duty_r);
+}
+
+void send_over_uart()
+{
+  char c;
+  timeout(-1);
+  endwin();
+  open_uart();
+  printf("Send char: ");
+  fflush(stdout);
+  c = getch();
+  tx_uart(c);
+  close_uart();
+
+  initscr();
+  timeout(100);
 }
 
 int format_motor_text(char *text, int length, double *duty_cycle)

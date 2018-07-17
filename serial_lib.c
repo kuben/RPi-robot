@@ -136,6 +136,12 @@ int read_mcp3008(int channel, float *voltage)
 #endif
 
 int uart0_filestream = -1;
+#ifdef __arm__
+static const char *uart_device = "/dev/spidev0.0";
+#else
+static const char *uart_device = "/dev/ttyUSB0";
+#endif
+
 
 int open_uart()
 {
@@ -149,7 +155,7 @@ int open_uart()
     //	output can't be written immediately.
 	//
 	//	O_NOCTTY - When set and path identifies a terminal device, open() shall not cause the terminal device to become the controlling terminal for the process.
-	uart0_filestream = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_NDELAY);
+	uart0_filestream = open(uart_device, O_RDWR | O_NOCTTY);// | O_NDELAY);
 	if (uart0_filestream == -1)
 	{
 		//ERROR - CAN'T OPEN SERIAL PORT
@@ -170,7 +176,7 @@ int open_uart()
 	struct termios options;
 	tcgetattr(uart0_filestream, &options);
 	options.c_cflag = B1200 | CS8 | CLOCAL | CREAD;		//<Set baud rate
-	options.c_iflag = IGNPAR;
+	options.c_iflag = IGNPAR;// | IGNBRK;
 	options.c_oflag = 0;
 	options.c_lflag = 0;
 	tcflush(uart0_filestream, TCIFLUSH);
@@ -179,52 +185,27 @@ int open_uart()
     return 0;
 }
 
-int tx_uart(){
-	unsigned char tx_buffer[20];
-	unsigned char *p_tx_buffer;
+void close_uart(){
+    close(uart0_filestream);
+}
 
-	p_tx_buffer = &tx_buffer[0];
-	*p_tx_buffer++ = 'H';
-	*p_tx_buffer++ = 'e';
-	*p_tx_buffer++ = 'l';
-	*p_tx_buffer++ = 'l';
-	*p_tx_buffer++ = 'o';
-
-	if (uart0_filestream != -1)
+int tx_uart(char word){
+	if (uart0_filestream == -1)
 	{
-        //Filestream, bytes to write, number of bytes to write
-		int count = write(uart0_filestream, &tx_buffer[0], (p_tx_buffer - &tx_buffer[0]));
-		if (count < 0)
-		{
-			printf("UART TX error\n");
-		}
+		printf("UART TX error\n");
+		return 1;
 	}
+	write(uart0_filestream, &word, 1);
     return 0;
 }
 
-int rx_uart()
+int rx_uart(char *word)
 {
-
-	//----- CHECK FOR ANY RX BYTES -----
-	if (uart0_filestream != -1)
+	if (uart0_filestream == -1)
 	{
-		// Read up to 255 characters from the port if they are there
-        unsigned char rx_buffer[256];
-		int rx_length = read(uart0_filestream, (void*)rx_buffer, 255);		//Filestream, buffer to store in, number of bytes to read (max)
-		if (rx_length < 0)
-		{
-			//An error occured (will occur if there are no bytes)
-		}
-		else if (rx_length == 0)
-		{
-			//No data waiting
-		}
-		else
-		{
-			//Bytes received
-			rx_buffer[rx_length] = '\0';
-			printf("%i bytes read : %s\n", rx_length, rx_buffer);
-		}
+		printf("UART RX error\n");
+		return 1;
 	}
+	read(uart0_filestream, (void*)word, 255);
     return 0;
 }
