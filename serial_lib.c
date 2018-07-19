@@ -189,7 +189,7 @@ void close_uart(){
     close(uart0_filestream);
 }
 
-int tx_uart(char word){
+int tx_uart(uint8_t word){
 	if (uart0_filestream == -1)
 	{
 		printf("UART TX error\n");
@@ -199,7 +199,7 @@ int tx_uart(char word){
     return 0;
 }
 
-int rx_uart(char *word)
+int rx_uart(uint8_t *word)
 {
 	if (uart0_filestream == -1)
 	{

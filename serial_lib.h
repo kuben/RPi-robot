@@ -38,7 +38,7 @@ int read_mcp3008(int channel, float *voltage);
 
 int open_uart();
 void close_uart();
-int tx_uart(char word);
-int rx_uart(char *word);
+int tx_uart(uint8_t word);
+int rx_uart(uint8_t *word);
 
 #endif

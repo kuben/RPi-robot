@@ -34,18 +34,26 @@ struct query_arg_struct
 void *query_adc(void *arguments);
 #endif
 
-void set_max(double *val, double max);
-void set_min(double *val, double min);
-void increase_by(double *val, double inc, double min, double max);
+struct motor
+{
+  uint8_t speed;//Max is 31
+  uint8_t mode;//0x00: brake, 0x80 forward, 0x40 reverse.
+};
 
-void manual_input(double *duty_l, double *duty_r);
+void set_max(struct motor *motor_struct);
+void set_min(struct motor *motor_struct, uint8_t min);
+void increase_by(struct motor *motor_struct, signed char inc, uint8_t min);
+void set_forward(struct motor *motor_struct);
+void set_reverse(struct motor *motor_struct);
+void set_brake(struct motor *motor_struct);
+
+void manual_input(struct motor *left, struct motor *right);
 void send_over_uart();
-int format_motor_text(char *text, int length, double *duty_cycle);
+int format_motor_text(char *text, int length, struct motor *left, struct motor *right);
 
-int keypress_mode_stepwise(char c, double *l_val, double *r_val,
-    double step, double min, double max);
-int keypress_mode_dynamic (char c, double *l_val, double *r_val,
-    double step_small, double step_big, double min, double max);
+int keypress_mode_stepwise(char c, struct motor *left, struct motor *right);
+int keypress_mode_dynamic (char c, struct motor *left, struct motor *right
+        , uint8_t step_small, uint8_t step_big, uint8_t min);
 char debug_text[100] = { 0 };
 
 int *running;
@@ -54,14 +62,12 @@ int main(int argc, char **argv)
   running = malloc(sizeof(int));
   *running = 1;
 
-  double *duty_l = malloc(sizeof(double));
-  double *duty_r = malloc(sizeof(double));
+  struct motor left_motor = {0};
+  struct motor right_motor = {0};
   double *rpm_r = malloc(sizeof(double));
   double *rpm_l = malloc(sizeof(double));
   float *battery_voltage = malloc(sizeof(float));
 
-  *duty_l = 0.0;//(double){atof(argv[1])};
-  *duty_r = 0.0;//(double){atof(argv[2])};
   *rpm_r = 0.0;
   *rpm_l = 0.0;
   *battery_voltage = 0.0;
@@ -81,6 +87,7 @@ int main(int argc, char **argv)
 
   create_thread(&query_thread, query_adc, (void *)args_query);
 #endif
+  open_uart();
 
   /* Initialize Curses*/
   initscr();
@@ -91,19 +98,16 @@ int main(int argc, char **argv)
 
   while (*running)
   {
-    char l_text[10];
-    char r_text[10];
+    char motor_text[39];
     char status_text[50];
 
-    format_motor_text(l_text,sizeof(l_text),duty_l);
-    format_motor_text(r_text,sizeof(r_text),duty_r);
+    format_motor_text(motor_text,sizeof(motor_text),&left_motor,&right_motor);
     snprintf(status_text, 50, "%lf", *battery_voltage);
-    mvprintw(0,0,"LEFT %-10s   RIGHT %s  READ FREQ %s  (mode %d)\n",l_text,r_text,status_text,mode);
+    mvprintw(0,0,"%s",motor_text);
+    mvprintw(0,40,"READ FREQ %s  (mode %d)\n",status_text,mode);
 
-    snprintf(l_text, 10, "%lf", *rpm_r);
-    snprintf(r_text, 10, "%lf", *rpm_r);
-
-    mvprintw(1,0,"     %-10s         %s\n",l_text,r_text);
+    mvprintw(1,0,"%lf",*rpm_l);
+    mvprintw(1,10,"%lf\n",*rpm_r);
 
     //Read sensors
 
@@ -129,23 +133,24 @@ int main(int argc, char **argv)
     if (c=='u') send_over_uart();
     if (mode == 0)
     {
-      int res = keypress_mode_stepwise(c, duty_l, duty_r, 0.1, 0.0, 1.0);
+      int res = keypress_mode_stepwise(c, &left_motor, &right_motor);
       if (res == 1)
       {
         mode = 1;
         timeout(100);
       }
-    } else {
-      int res = keypress_mode_dynamic(c, duty_l, duty_r, 0.05, 0.2, 0.0, 1.0);
+    }/* else {
+      int res = keypress_mode_dynamic(c, &speed_struct, 1, 3, 0);
       if (res == 1)
       {
         mode = 0;
         timeout(100);//Refresh every 0.1s
       }
-    }
+    }*/
   }
 
   endwin();
+  close_uart();
 #ifdef __arm__
   free_io();
   //Unneccessary
@@ -154,8 +159,6 @@ int main(int argc, char **argv)
 #endif
 
   free(running);
-  free(duty_l);
-  free(duty_r);
   free(rpm_l);
   free(rpm_r);
   free(battery_voltage);
@@ -171,17 +174,16 @@ int main(int argc, char **argv)
  * Duty cycle or setpoint depending on arguments
  * Return 1 when changing mode
  */
-int keypress_mode_stepwise(char c, double *l_val, double *r_val,
-    double step, double min, double max)
+int keypress_mode_stepwise(char c, struct motor *left, struct motor *right)
 {
-  char l_str[6] = "Left";
-  char r_str[6] = "Right";
-  char *side;//Pointer to "Left" or "Right"
-  double *val;
+  const char l_str[6] = "Left";
+  const char r_str[6] = "Right";
+  const char *side_text;//Pointer to "Left" or "Right"
+  struct motor *side;
   switch(c) {
     case ' ':
       endwin();
-      manual_input(l_val, r_val);
+      manual_input(left, right);
       initscr();
       return 0;
     case '`':
@@ -194,13 +196,13 @@ int keypress_mode_stepwise(char c, double *l_val, double *r_val,
     //  ;
     //  printw("gpio %d RPM %lf\n",GET_GPIO(PIN_RPM_RR),*rpm_r);
     //  break;
-    case '3': case 'e': case 'd': case 'c': case 'w': case 's':
-      side = l_str;
-      val = l_val;
+    case '3': case 'e': case 'd': case 'c': case 'w': case 's': case 'x':
+      side_text = l_str;
+      side = left;
       break;
-    case '4': case 'r': case 'f': case 'v': case 't': case 'g':
-      side = r_str;
-      val = r_val;
+    case '4': case 'r': case 'f': case 'v': case 't': case 'g': case 'b':
+      side_text = r_str;
+      side = right;
       break;
     default://65-68 up dn right left
       printw("%d %c invalid\n",c,c);
@@ -208,40 +210,45 @@ int keypress_mode_stepwise(char c, double *l_val, double *r_val,
   }
   switch(c) {
     case '3': case '4':
-      printw("%c: %s motor max speed\n",c, side);
-      set_max(val, max);
+      printw("%c: %s motor max speed\n",c, side_text);
+      set_max(side);
       break;
     case 'e': case 'r':
-      printw("%c: %s motor increase speed\n",c, side);
-      increase_by(val,step, min, max);
+      printw("%c: %s motor increase speed\n",c, side_text);
+      increase_by(side, 1, 0);
       break;
     case 'd': case 'f':
-      printw("%c: %s motor decrease speed\n",c, side);
-      increase_by(val,-step, min, max);
+      printw("%c: %s motor decrease speed\n",c, side_text);
+      increase_by(side,-1, 0);
       break;
     case 'c': case 'v':
-      printw("%c: %s motor min speed\n",c, side);
-      set_min(val,min);
+      printw("%c: %s motor min speed\n",c, side_text);
+      set_min(side,0);
       break;
     case 'w': case 't':
-      printw("%c: %s motor forward\n",c, side);
-      *val= fabs(*val);
+      printw("%c: %s motor forward\n",c, side_text);
+      set_forward(side);
       break;
     case 's': case 'g':
-      printw("%c: %s motor reverse\n",c, side);
-      *val= -fabs(*val);
+      printw("%c: %s motor reverse\n",c, side_text);
+      set_reverse(side);
+      break;
+    case 'x': case 'b':
+      printw("%c: %s motor brake\n",c, side_text);
+      set_brake(side);
       break;
     default :
       break;
   }
   return 0;
 }
-
-int keypress_mode_dynamic (char c, double *l_val, double *r_val,
-    double step_small, double step_big, double min, double max)
+/*
+int keypress_mode_dynamic (char c, struct motor *speed_struct,
+    uint8_t step_small, uint8_t step_big, uint8_t min)
 {
   switch (c) {
     case 65:
+            //TODO
       if (!(signbit(*l_val) | signbit(*r_val)))
       {//Both forward - accelerate
         printw("Accelerating L, R\n");
@@ -312,7 +319,7 @@ int keypress_mode_dynamic (char c, double *l_val, double *r_val,
   }
   return 0;
 }
-
+*/
 #ifdef __arm__
 void *query_adc(void *arguments)
 {
@@ -320,35 +327,63 @@ void *query_adc(void *arguments)
 }
 #endif
 
-void set_max(double *val, double max)
+void transfer_uart(struct motor *motor_struct)
 {
-  *val = signbit(*val) ? -max : max;
+  uint8_t word = motor_struct->mode | motor_struct->speed | 0x20;
+  tx_uart(word);
+  sprintf(debug_text,"Transferring 0x%.2x (%c)", word, word);
+}
+//Hard-code max as 31
+void set_max(struct motor *motor_struct)
+{
+  motor_struct->speed = 31;
+  transfer_uart(motor_struct);
 }
 
-void set_min(double *val, double min){
-  *val = signbit(*val) ? -min : min;
+void set_min(struct motor *motor_struct, uint8_t min){
+  motor_struct->speed = min;
+  transfer_uart(motor_struct);
 }
 
-void increase_by(double *val, double inc, double min, double max)
+void increase_by(struct motor *motor_struct, signed char inc, uint8_t min)
 {
-  if(fabs(*val) + inc >= max) set_max(val, max);
-  else if(fabs(*val) + inc <= min) set_min(val, min);
-  else
-  {
-    double dc_abs = fabs(*val) + inc;
-    *val= signbit(*val) ? -dc_abs : dc_abs;
-  }
+  if((signed char)motor_struct->speed + inc >= 31)
+    set_max(motor_struct);
+  else if((signed char)motor_struct->speed + inc <= (signed char)min)
+      set_min(motor_struct, min);
+  else motor_struct->speed  = (uint8_t) ((signed char) motor_struct->speed + inc);
+  transfer_uart(motor_struct);
 }
 
-void manual_input(double *duty_l, double *duty_r)
+void set_forward(struct motor *motor_struct)
 {
-  printf("Set duty cycle of left motor: ");
+  motor_struct->mode = 0x80;
+  transfer_uart(motor_struct);
+}
+void set_reverse(struct motor *motor_struct)
+{
+  motor_struct->mode = 0x40;
+  transfer_uart(motor_struct);
+}
+void set_brake(struct motor *motor_struct)
+{
+  motor_struct->mode = 0x00;
+  transfer_uart(motor_struct);
+}
+//TODO replace scanf or entire function
+void manual_input(struct motor *left, struct motor *right)
+{
+  printf("Set speed of left motor: ");
   fflush(stdout);
-  scanf("%lf",duty_l);
+  scanf("%hhu",&left->speed);
+  left->speed = 0x1f;
+  transfer_uart(left);
 
-  printf("Set duty cycle of right motor: ");
+  printf("Set speed of right motor: ");
   fflush(stdout);
-  scanf("%lf",duty_r);
+  scanf("%hhu",&right->speed);
+  right->speed &= 0x1f;
+  transfer_uart(right);
 }
 
 void send_over_uart()
@@ -367,15 +402,25 @@ void send_over_uart()
   timeout(100);
 }
 
-int format_motor_text(char *text, int length, double *duty_cycle)
+//Prints for example
+//  L: 81% fwd [25/31]  R: 84% fwd [26/31]
+int format_motor_text(char *text, int length, struct motor *left, struct motor *right)
 {
-  if (length < 4) return 1;
+  //if (length < 41) return 1;
+  const char *fwd = "fwd";
+  const char *rev = "rev";
+  const char *brk = "brk";
+  const char *mode_str_l;
+  const char *mode_str_r;
+  if (left->mode == 0x80) mode_str_l = fwd;
+  else if (left->mode == 0x40) mode_str_l = rev;
+  else mode_str_l = brk;
+  if (right->mode == 0x80) mode_str_r = fwd;
+  else if (right->mode == 0x40) mode_str_r = rev;
+  else mode_str_r = brk;
 
-  char dir_char = 'F';
-  if (signbit(*duty_cycle)) dir_char = 'R';
-
-  strncpy(text,"OFF",length);
-  snprintf(text, length-3, "%lf", *duty_cycle);//Leave space at end for at least 3
-  snprintf(text + strlen(text) - 1, 3, " %c", dir_char);//-1 to overwrite trailing null
+  snprintf(text, length, "L: %.3d%% %s [%.2d/31]  R: %.3d%% %s [%.2d/31]"
+          ,left->speed*100/31,mode_str_l,left->speed
+          ,right->speed*100/31,mode_str_r,right->speed);
   return 0;
 }
