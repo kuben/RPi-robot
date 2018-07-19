@@ -64,6 +64,7 @@ int main(int argc, char **argv)
 
   struct motor left_motor = {0};
   struct motor right_motor = {0};
+  right_motor.mode = 0x20;//Right bit set
   double *rpm_r = malloc(sizeof(double));
   double *rpm_l = malloc(sizeof(double));
   float *battery_voltage = malloc(sizeof(float));
@@ -104,7 +105,7 @@ int main(int argc, char **argv)
     format_motor_text(motor_text,sizeof(motor_text),&left_motor,&right_motor);
     snprintf(status_text, 50, "%lf", *battery_voltage);
     mvprintw(0,0,"%s",motor_text);
-    mvprintw(0,40,"READ FREQ %s  (mode %d)\n",status_text,mode);
+    mvprintw(0,41,"READ FREQ %s  (mode %d)\n",status_text,mode);
 
     mvprintw(1,0,"%lf",*rpm_l);
     mvprintw(1,10,"%lf\n",*rpm_r);
@@ -329,7 +330,7 @@ void *query_adc(void *arguments)
 
 void transfer_uart(struct motor *motor_struct)
 {
-  uint8_t word = motor_struct->mode | motor_struct->speed | 0x20;
+  uint8_t word = motor_struct->mode | motor_struct->speed;
   tx_uart(word);
   sprintf(debug_text,"Transferring 0x%.2x (%c)", word, word);
 }
@@ -357,17 +358,20 @@ void increase_by(struct motor *motor_struct, signed char inc, uint8_t min)
 
 void set_forward(struct motor *motor_struct)
 {
-  motor_struct->mode = 0x80;
+  uint8_t side_bit = 0x20 & motor_struct->mode;
+  motor_struct->mode = 0x80 | side_bit;//Leave side bit unchanged
   transfer_uart(motor_struct);
 }
 void set_reverse(struct motor *motor_struct)
 {
-  motor_struct->mode = 0x40;
+  uint8_t side_bit = 0x20 & motor_struct->mode;
+  motor_struct->mode = 0x40 | side_bit;//Leave side bit unchanged
   transfer_uart(motor_struct);
 }
 void set_brake(struct motor *motor_struct)
 {
-  motor_struct->mode = 0x00;
+  uint8_t side_bit = 0x20 & motor_struct->mode;
+  motor_struct->mode = 0x00 | side_bit;//Leave side bit unchanged
   transfer_uart(motor_struct);
 }
 //TODO replace scanf or entire function
