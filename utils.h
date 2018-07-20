@@ -15,7 +15,15 @@ void *gpio_map;
 // I/O access
 volatile unsigned *gpio;
 
-extern char debug_text[100];
+struct text_bar
+{
+    char text[50];
+    int x;//Position in curses window
+    int y;
+};
+extern struct text_bar debug_bar;
+extern struct text_bar messages_bar;
+extern struct text_bar peripherals_bar;
 
 // GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
 #define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))

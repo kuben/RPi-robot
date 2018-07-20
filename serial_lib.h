@@ -18,6 +18,8 @@
 #endif
 #include <termios.h>
 
+#include "utils.h"
+
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 /*

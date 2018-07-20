@@ -159,7 +159,8 @@ int open_uart()
 	if (uart0_filestream == -1)
 	{
 		//ERROR - CAN'T OPEN SERIAL PORT
-		printf("Error - Unable to open UART.  Ensure it is not in use by another application\n");
+        snprintf(debug_bar.text,sizeof(debug_bar.text)
+                ,"Error - Unable to open UART.  Ensure it is not in use by another application");
         return 1;
 	}
 
@@ -181,18 +182,20 @@ int open_uart()
 	options.c_lflag = 0;
 	tcflush(uart0_filestream, TCIFLUSH);
 	tcsetattr(uart0_filestream, TCSANOW, &options);
+	snprintf(peripherals_bar.text,sizeof(peripherals_bar.text),"UART open");
 
     return 0;
 }
 
 void close_uart(){
     close(uart0_filestream);
+	snprintf(peripherals_bar.text,sizeof(peripherals_bar.text),"UART closed");
 }
 
 int tx_uart(uint8_t word){
 	if (uart0_filestream == -1)
 	{
-		printf("UART TX error\n");
+		snprintf(debug_bar.text,sizeof(debug_bar.text),"UART TX error");
 		return 1;
 	}
 	write(uart0_filestream, &word, 1);
@@ -203,7 +206,7 @@ int rx_uart(uint8_t *word)
 {
 	if (uart0_filestream == -1)
 	{
-		printf("UART RX error\n");
+		snprintf(debug_bar.text,sizeof(debug_bar.text),"UART RX error");
 		return 1;
 	}
 	read(uart0_filestream, (void*)word, 255);

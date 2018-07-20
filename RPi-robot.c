@@ -54,8 +54,15 @@ int format_motor_text(char *text, int length, struct motor *left, struct motor *
 int keypress_mode_stepwise(char c, struct motor *left, struct motor *right);
 int keypress_mode_dynamic (char c, struct motor *left, struct motor *right
         , uint8_t step_small, uint8_t step_big, uint8_t min);
-char debug_text[100] = { 0 };
 
+void draw_text_bar(struct text_bar *bar)
+{
+    mvprintw(bar->y,bar->x,"%s",bar->text);
+}
+
+struct text_bar debug_bar = {0};
+struct text_bar messages_bar = {0};
+struct text_bar peripherals_bar = {0};
 int *running;
 int main(int argc, char **argv)
 {
@@ -96,19 +103,28 @@ int main(int argc, char **argv)
   raw();
   timeout(100);//Refresh every 0.1s
   int mode = 0;//0 - Increments, 1 - Hold for speed
+  struct text_bar motor_bar = {.x = 0, .y = 0};
+  struct text_bar status_bar = {.x = 41, .y = 0};
+  debug_bar.y = LINES - 3;
+  messages_bar.y = LINES - 2;
+  peripherals_bar.y = LINES - 1;
+  snprintf(peripherals_bar.text,sizeof(peripherals_bar.text),"UART closed");
 
   while (*running)
   {
-    char motor_text[39];
-    char status_text[50];
+    snprintf(status_bar.text,sizeof(status_bar.text),"READ FREQ %lf  (mode %d)\n"
+            , *battery_voltage,mode);
 
-    format_motor_text(motor_text,sizeof(motor_text),&left_motor,&right_motor);
-    snprintf(status_text, 50, "%lf", *battery_voltage);
-    mvprintw(0,0,"%s",motor_text);
-    mvprintw(0,41,"READ FREQ %s  (mode %d)\n",status_text,mode);
+    format_motor_text(motor_bar.text,sizeof(motor_bar.text),&left_motor,&right_motor);
 
-    mvprintw(1,0,"%lf",*rpm_l);
-    mvprintw(1,10,"%lf\n",*rpm_r);
+    draw_text_bar(&motor_bar);
+    draw_text_bar(&status_bar);
+    draw_text_bar(&debug_bar);
+    draw_text_bar(&messages_bar);
+    draw_text_bar(&peripherals_bar);
+
+    //mvprintw(1,0,"%lf",*rpm_l);
+    //mvprintw(1,10,"%lf\n",*rpm_r);
 
     //Read sensors
 
@@ -121,12 +137,10 @@ int main(int argc, char **argv)
     //read_mcp3008(1, sensor_voltage);
     //mvprintw(4,0,"In proximity? (%-4lfV) ", *sensor_voltage);
 
-    //Debugging string
-    mvprintw(3,0,"%-50s\n",debug_text);
     refresh();
-
-    move(3,0);
     int c = getch();
+    erase();
+    move(3,0);
     if (c==-1) continue;//No input
 #ifdef __arm__
     if (c=='l') open_oscilloscope();
@@ -332,7 +346,7 @@ void transfer_uart(struct motor *motor_struct)
 {
   uint8_t word = motor_struct->mode | motor_struct->speed;
   tx_uart(word);
-  sprintf(debug_text,"Transferring 0x%.2x (%c)", word, word);
+  sprintf(debug_bar.text,"Transferring %#.2x (%c)", word, word);
 }
 //Hard-code max as 31
 void set_max(struct motor *motor_struct)
