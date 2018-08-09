@@ -109,9 +109,11 @@ int main(int argc, char **argv)
   messages_bar.y = LINES - 2;
   peripherals_bar.y = LINES - 1;
   snprintf(peripherals_bar.text,sizeof(peripherals_bar.text),"UART closed");
+  snprintf(messages_bar.text,sizeof(messages_bar.text),"UART reply: ");
 
   while (*running)
   {
+    rx_uart_message(messages_bar.text+11, sizeof(messages_bar.text)-11);
     snprintf(status_bar.text,sizeof(status_bar.text),"READ FREQ %lf  (mode %d)\n"
             , *battery_voltage,mode);
 
@@ -433,8 +435,8 @@ int format_motor_text(char *text, int length, struct motor *left, struct motor *
   if (left->mode == 0x80) mode_str_l = fwd;
   else if (left->mode == 0x40) mode_str_l = rev;
   else mode_str_l = brk;
-  if (right->mode == 0x80) mode_str_r = fwd;
-  else if (right->mode == 0x40) mode_str_r = rev;
+  if (right->mode == 0xa0) mode_str_r = fwd;
+  else if (right->mode == 0x60) mode_str_r = rev;
   else mode_str_r = brk;
 
   snprintf(text, length, "L: %.3d%% %s [%.2d/31]  R: %.3d%% %s [%.2d/31]"

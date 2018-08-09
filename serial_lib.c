@@ -155,7 +155,7 @@ int open_uart()
     //	output can't be written immediately.
 	//
 	//	O_NOCTTY - When set and path identifies a terminal device, open() shall not cause the terminal device to become the controlling terminal for the process.
-	uart0_filestream = open(uart_device, O_RDWR | O_NOCTTY);// | O_NDELAY);
+	uart0_filestream = open(uart_device, O_RDWR | O_NOCTTY | O_NDELAY);
 	if (uart0_filestream == -1)
 	{
 		//ERROR - CAN'T OPEN SERIAL PORT
@@ -176,7 +176,7 @@ int open_uart()
 	//	PARODD - Odd parity (else even)
 	struct termios options;
 	tcgetattr(uart0_filestream, &options);
-	options.c_cflag = B1200 | CS8 | CLOCAL | CREAD;		//<Set baud rate
+	options.c_cflag = B115200 | CS8 | CLOCAL | CREAD;		//<Set baud rate
 	options.c_iflag = IGNPAR;// | IGNBRK;
 	options.c_oflag = 0;
 	options.c_lflag = 0;
@@ -202,13 +202,24 @@ int tx_uart(uint8_t word){
     return 0;
 }
 
-int rx_uart(uint8_t *word)
+int rx_uart_word(uint8_t *word)
 {
 	if (uart0_filestream == -1)
 	{
 		snprintf(debug_bar.text,sizeof(debug_bar.text),"UART RX error");
 		return 1;
 	}
-	read(uart0_filestream, (void*)word, 255);
+	read(uart0_filestream, (void*)word, 1);
+    return 0;
+}
+
+int rx_uart_message(char *message, size_t size)
+{
+	if (uart0_filestream == -1)
+	{
+		snprintf(debug_bar.text,sizeof(debug_bar.text),"UART RX error");
+		return 1;
+	}
+	read(uart0_filestream, (void*)message, size);
     return 0;
 }
