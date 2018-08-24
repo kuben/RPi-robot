@@ -145,9 +145,10 @@ int main(int argc, char **argv)
     move(3,0);
     if (c==-1) continue;//No input
 #ifdef __arm__
-    if (c=='l') open_oscilloscope();
+    else if (c=='l') open_oscilloscope();
 #endif
-    if (c=='u') send_over_uart();
+    else if (c=='n') tx_uart(0xc1);
+    else if (c=='m') tx_uart(0xc2);
     if (mode == 0)
     {
       int res = keypress_mode_stepwise(c, &left_motor, &right_motor);
