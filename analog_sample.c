@@ -205,7 +205,7 @@ void* poll_analog(void *arguments)
       n = 0;
     }
 
-    read_mcp3008(*channel, sample_buffer + n);
+    //read_mcp3008(*channel, sample_buffer + n);
     clock_gettime(CLOCK_MONOTONIC, &ts_now);
     time_buffer[n] = ts_now;
     if (last_freq != *sample_freq)

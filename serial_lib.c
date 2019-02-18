@@ -25,7 +25,7 @@ static const char *spi_device = "/dev/spidev0.0";
 static uint32_t spi_mode;
 static uint8_t spi_bits = 8;
 static uint32_t spi_speed = 1350000;
-static uint16_t delay;
+static uint16_t delay_usecs;
 
 static void spi_transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t len)
 {
@@ -35,7 +35,7 @@ static void spi_transfer(int fd, uint8_t const *tx, uint8_t const *rx, size_t le
 		.tx_buf = (unsigned long)tx,
 		.rx_buf = (unsigned long)rx,
 		.len = len,
-		.delay_usecs = delay,
+		.delay_usecs = delay_usecs,
 		.speed_hz = spi_speed,
 		.bits_per_word = spi_bits,
 	};
@@ -137,7 +137,8 @@ int read_mcp3008(int channel, float *voltage)
 
 int uart0_filestream = -1;
 #ifdef __arm__
-static const char *uart_device = "/dev/ttyAMA0";
+///static const char *uart_device = "/dev/ttyAMA0";
+static const char *uart_device = "/dev/ttyS1";
 #else
 static const char *uart_device = "/dev/ttyUSB0";
 #endif
