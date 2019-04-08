@@ -25,16 +25,25 @@ void delay(uint16_t iterations)
 static const int bajs = 69;
 void main(void)
 {
+    TRISA = 0xff;
+    TRISB = 0xff;
+    TRISC = 0xff;
 	LED_TRIS = 0; // Pin as output
 	LED_PORT = 0; // LED off
-    TRISB = 0;
-    PORTB = 1;
+
 
 	while (1) {
 		LED_PORT = 1; // LED On
+//		LED_PORT = PORTBbits.RB6;
 		delay(30000); // ~500ms @ 4MHz
+//        PORTA = 0;
+//        PORTB = 0;
+//        PORTC = 0;
 		LED_PORT = 0; // LED Off
 		delay(30000); // ~500ms @ 4MHz
+//        PORTA = -1;
+//        PORTB = -1;
+//        PORTC = -1;
 	}
 }
 
