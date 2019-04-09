@@ -1,4 +1,4 @@
-CFLAGS = --use-non-free -mpic14 -p16f690 --std-c11 #--opt-code-speed --cyclomatic
+CFLAGS = --use-non-free -mpic14 -p16f690 --std-c11 --opt-code-speed #--cyclomatic
 CC = sdcc
 
 default: all

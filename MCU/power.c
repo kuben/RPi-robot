@@ -29,9 +29,11 @@ void led_boot_sequence();
 volatile uint8_t l_speed = 7;
 volatile uint8_t write = 0;
 
-volatile uint8_t message[20];
+volatile uint8_t message[30];
 volatile uint8_t msg_idx = 0;
+void format_AD_data();
 
+uint16_t val = 0;
 void main(void)
 {
     setup();
@@ -47,12 +49,17 @@ void main(void)
         uart_msg("Boot (MCLR)\n");
     }
 
+    uart_msg("Analog read gives \"    \"");
     volatile uint8_t i = 0;
     while (1) {
         LED_PORT = !LED_PORT;
         delay(30000);
 //        if (TMR2 < l_speed) LED_PORT = 1;
 //        else LED_PORT = 0;
+        ADCON0bits.GO = 1;
+        while (ADCON0bits.GO); //Wait until finished
+        format_AD_data();
+        val++;
     }
 }
 
@@ -83,39 +90,50 @@ void Itr_Routine(void) __interrupt 0
     if (PIR1bits.SSPIF & SSPSTATbits.BF)
     {
         volatile uint8_t read = SSPBUF;
+        if (read == 'S') msg_idx = 0; // Start
         //if (SSPCONbits.WCOL) SSPBUF = 0x80;
         //else if (SSPCONbits.WCOL) SSPBUF = 0x40;
         //else SSPBUF = write;
         //write++;
-        SSPBUF = read;
-        /*
+        //SSPBUF = read;
+
+        if (msg_idx == 0xff)
+        {
+            SSPBUF = 0x00;
+            PIR1bits.SSPIF = 0;
+            return;
+        }
         SSPBUF = message[msg_idx];
         // Send 0 as last char so receiver knows when to stop reading
         if (!message[msg_idx] || msg_idx == sizeof(message)){
-            msg_idx = 0;
-            message[0] = 0; // Clear message
+            msg_idx = 0xff;
+            //msg_idx = 0;
+            //message[0] = 0; // Clear message
         } else {
             msg_idx++;
         }
-        */
+
         PIR1bits.SSPIF = 0;
     }
     /*
     if(PIR1bits.ADIF)
     {
-        uint16_t val = ((uint16_t)ADRESH << 8) + ADRESL;
-        char str[12];
-        strcpy(str,"Conv.     !\n");
-        str[9] = num2char((uint8_t)val%10);
-        str[8] = num2char((uint8_t)(val/10)%10);
-        str[7] = num2char((uint8_t)(val/100)%10);
-        str[6] = num2char((uint8_t)(val/1000)%10);
-        uart_msg(str);
         PIR1bits.ADIF = 0;
     }
     */
 }
 
+void format_AD_data()
+{
+    //uint16_t val = ((uint16_t)ADRESH << 8) + ADRESL;
+    char *str = message + 19;
+//    strcpy(str,"Conv.     !\n");
+    str[3] = num2char((uint8_t)val%10);
+    str[2] = num2char((uint8_t)(val/10)%10);
+    str[1] = num2char((uint8_t)(val/100)%10);
+    str[0] = num2char((uint8_t)(val/1000)%10);
+//    uart_msg(str);
+}
 void setup()
 {
     //All pins inputs
@@ -123,7 +141,7 @@ void setup()
     TRISB = 0xff;
     TRISC = 0xff;
 
-    ANSEL = 0;//0x30;//AN4 and 5 analog (RC1 and 0)
+    ANSEL = 0x80;//AN7 (RC3)
     ANSELH = 0;
 
     OPTION_REGbits.NOT_RABPU = 1;//Don't disable pull-ups
@@ -151,8 +169,10 @@ void setup()
     SSPBUF = 0x00;
 
     //Setup ADC
-    //ADCON1 = 0x50;//T_AD = 4us at 4MHz osc
-    //ADCON0bits.ADFM = 1;//Right justify data
+    ADCON1 = 0x50;//T_AD = 4us at 4MHz osc
+    ADCON0bits.ADFM = 1;//Right justify data
+    ADCON0bits.CHS = 0x7;
+    ADCON0bits.ADON = 1;
     //PIR1bits.ADIF = 0;
     //PIE1bits.ADIE = 1;//Enable interrupt
 
