@@ -23,7 +23,7 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
 void setup();
 void setup_tmr_pwm();
 void rx_done(uint8_t word);
-void uart_msg(char *msg);
+void spi_msg(char *msg);
 void led_boot_sequence();
 
 volatile uint8_t l_speed = 7;
@@ -41,16 +41,16 @@ void main(void)
     led_boot_sequence();
     if(!PCONbits.NOT_BOR){
         PCONbits.NOT_BOR = 1;//Reset bit for future resets
-        uart_msg("Boot (BOR)\n");
+        spi_msg("Boot (BOR)\n");
     } else if(!PCONbits.NOT_POR){
         PCONbits.NOT_BOR = 1;//Reset bit for future resets
         PCONbits.NOT_POR = 1;//Reset bit for future resets
-        uart_msg("Boot (POR)\n");
+        spi_msg("Boot (POR)\n");
     } else {
-        uart_msg("Boot (MCLR)\n");
+        spi_msg("Boot (MCLR)\n");
     }
 
-    uart_msg("An. read \"    \" and \"    \".");
+    spi_msg("An. read \"    \" and \"    \".");
     volatile uint8_t i = 0;
     while (1) {
         LED_PORT = !LED_PORT;
@@ -58,21 +58,19 @@ void main(void)
         ADCON0bits.GO = 1;
         while (ADCON0bits.GO); //Wait until finished
         val = ((uint16_t)ADRESH << 8) + ADRESL;
-        num2str10bitalt(val, adc_str);
+        num2str10bit(val, adc_str);
         ADCON0bits.CHS = 4; // Select AN ch 4
-    ADCON0bits.ADFM = 1;//Right justify data
+        ADCON0bits.ADFM = 1;//Right justify data
 
         LED_PORT = !LED_PORT;
         delay(10000);
         ADCON0bits.GO = 1;
         while (ADCON0bits.GO); //Wait until finished
         val = ((uint16_t)ADRESH << 8) + ADRESL;
-        num2str10bitalt(val, adc_str2);
+        num2str10bit(val, adc_str2);
         ADCON0bits.CHS = 7; // Select AN ch 7
-    ADCON0bits.ADFM = 1;//Right justify data
+        ADCON0bits.ADFM = 1;//Right justify data
     }
-//        adc_str[0] = ADRESH;
-//        adc_str[1] = ADRESL;
 }
 
 /*
@@ -90,7 +88,7 @@ void receive(uint8_t word)
 }
     */
 
-void uart_msg(char *msg)
+void spi_msg(char *msg)
 {
     strcpy(message, msg);
     //TX_PENDING = 1;

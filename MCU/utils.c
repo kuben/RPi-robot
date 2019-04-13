@@ -5,6 +5,7 @@ inline char num2char(uint8_t num)
     return 48+num;//ASCII 48 is 0
 }
 
+#ifdef NUM2STR_SLOW
 void num2str10bit(uint16_t num, char *str)
 {
     // Assume that number is max 1024
@@ -20,10 +21,8 @@ void num2str10bit(uint16_t num, char *str)
     small_num -= 10*digit;
     str[3] = num2char(small_num);
 }
-
-/*
-*/
-void num2str10bitalt(uint16_t num, char *str)
+#else /* def NUM2STR_FAST */
+void num2str10bit(uint16_t num, char *str)
 {
     uint8_t snum;
     // Assume that number is max 1024
@@ -125,6 +124,8 @@ void num2str10bitalt(uint16_t num, char *str)
     }
     str[3] = num2char(snum);
 }
+#endif /* def NUM2STR_FAST */
+
 int num2str(uint8_t num, char *str, uint8_t *len)
 {
     uint8_t length;
