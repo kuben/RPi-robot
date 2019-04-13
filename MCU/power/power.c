@@ -3,7 +3,7 @@
 #define NO_LEGACY_DEFINES
 #include <pic16f690.h>
 #include <stdint.h>
-#include "utils.h"
+#include "../utils.h"
 
 // Oscillator Selection bits (INTOSCIO oscillator: I/O function on RA6/OSC2/CLKOUT pin, I/O function on RA7/OSC1/CLKIN),
 // disable watchdog,
