@@ -12,10 +12,10 @@ driver: driver.o utils.o
 	$(CC) $(CFLAGS) -o driver driver.o utils.o
 
 utils.o: utils.c
-	$(CC) $(CFLAGS) -co utils.o utils.c
+	$(CC) $(CFLAGS) -c -o utils.o utils.c
 
 
-power: power.c
+power: power.c utils.c
 	$(CC) $(CFLAGS) -o power power.c utils.o
 
 blink: blink_led.c

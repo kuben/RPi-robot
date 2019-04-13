@@ -31,7 +31,8 @@ volatile uint8_t write = 0;
 
 volatile uint8_t message[30];
 volatile uint8_t msg_idx = 0;
-void format_AD_data();
+char *adc_str = message + 10;
+char *adc_str2 = message + 21;
 
 uint16_t val = 0;
 void main(void)
@@ -49,18 +50,29 @@ void main(void)
         uart_msg("Boot (MCLR)\n");
     }
 
-    uart_msg("Analog read gives \"    \"");
+    uart_msg("An. read \"    \" and \"    \".");
     volatile uint8_t i = 0;
     while (1) {
         LED_PORT = !LED_PORT;
-        delay(30000);
-//        if (TMR2 < l_speed) LED_PORT = 1;
-//        else LED_PORT = 0;
+        delay(10000);
         ADCON0bits.GO = 1;
         while (ADCON0bits.GO); //Wait until finished
-        format_AD_data();
-        val++;
+        val = ((uint16_t)ADRESH << 8) + ADRESL;
+        num2str10bitalt(val, adc_str);
+        ADCON0bits.CHS = 4; // Select AN ch 4
+    ADCON0bits.ADFM = 1;//Right justify data
+
+        LED_PORT = !LED_PORT;
+        delay(10000);
+        ADCON0bits.GO = 1;
+        while (ADCON0bits.GO); //Wait until finished
+        val = ((uint16_t)ADRESH << 8) + ADRESL;
+        num2str10bitalt(val, adc_str2);
+        ADCON0bits.CHS = 7; // Select AN ch 7
+    ADCON0bits.ADFM = 1;//Right justify data
     }
+//        adc_str[0] = ADRESH;
+//        adc_str[1] = ADRESL;
 }
 
 /*
@@ -123,17 +135,6 @@ void Itr_Routine(void) __interrupt 0
     */
 }
 
-void format_AD_data()
-{
-    //uint16_t val = ((uint16_t)ADRESH << 8) + ADRESL;
-    char *str = message + 19;
-//    strcpy(str,"Conv.     !\n");
-    str[3] = num2char((uint8_t)val%10);
-    str[2] = num2char((uint8_t)(val/10)%10);
-    str[1] = num2char((uint8_t)(val/100)%10);
-    str[0] = num2char((uint8_t)(val/1000)%10);
-//    uart_msg(str);
-}
 void setup()
 {
     //All pins inputs
@@ -141,7 +142,7 @@ void setup()
     TRISB = 0xff;
     TRISC = 0xff;
 
-    ANSEL = 0x80;//AN7 (RC3)
+    ANSEL = 0x90;//AN7 (RC3) and AN4 (RC0)
     ANSELH = 0;
 
     OPTION_REGbits.NOT_RABPU = 1;//Don't disable pull-ups
@@ -170,8 +171,8 @@ void setup()
 
     //Setup ADC
     ADCON1 = 0x50;//T_AD = 4us at 4MHz osc
-    ADCON0bits.ADFM = 1;//Right justify data
     ADCON0bits.CHS = 0x7;
+    ADCON0bits.ADFM = 1;//Right justify data
     ADCON0bits.ADON = 1;
     //PIR1bits.ADIF = 0;
     //PIE1bits.ADIE = 1;//Enable interrupt
