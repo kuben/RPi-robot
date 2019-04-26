@@ -13,11 +13,9 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
         & _PWRTE_ON & _BOR_ON
         ;
 
-#define LED_PORT PORTAbits.RA0
-#define LED_TRIS TRISAbits.TRISA0
-#define A_MASK 0x33
+#define A_MASK 0x37
 #define B_MASK 0xa0
-#define C_MASK 0x1f
+#define C_MASK 0x36
 
 #define NOP __asm__ ("nop")
 #define TNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
@@ -30,39 +28,48 @@ void spi_msg(char *msg);
 void led_boot_sequence();
 inline void toggle_leds();
 
-volatile uint8_t l_speed = 7;
-volatile uint8_t write = 0;
-
-volatile uint8_t message[30];
+volatile uint8_t message[6];
 volatile uint8_t msg_idx = 0;
-char *adc_str = message + 10;
-char *adc_str2 = message + 21;
 
-uint16_t val = 0;
+struct ADC_buffer {
+    volatile uint8_t voltage_high;
+    volatile uint8_t voltage_low;
+    volatile uint8_t current_high;
+    volatile uint8_t current_low;
+};
+struct ADC_buffer adc_buf = {0xff};
+
+//uint16_t val = 0;
 void main(void)
 {
     setup();
     led_boot_sequence();
     if(!PCONbits.NOT_BOR){
         PCONbits.NOT_BOR = 1;//Reset bit for future resets
-        spi_msg("Boot (BOR)\n");
+        //spi_msg("Boot (BOR)\n");
     } else if(!PCONbits.NOT_POR){
         PCONbits.NOT_BOR = 1;//Reset bit for future resets
         PCONbits.NOT_POR = 1;//Reset bit for future resets
-        spi_msg("Boot (POR)\n");
+        //spi_msg("Boot (POR)\n");
     } else {
-        spi_msg("Boot (MCLR)\n");
+        //spi_msg("Boot (MCLR)\n");
     }
 
-    spi_msg("An. read \"    \" and \"    \".");
+    //spi_msg("An. read \"    \" and \"    \".");
+    message[0] = 0xff;
+    message[1] = 0xff;
     volatile uint8_t i = 0;
     while (1) {
         toggle_leds();
         delay(10000);
         ADCON0bits.GO = 1;
         while (ADCON0bits.GO); //Wait until finished
+        /*
         val = ((uint16_t)ADRESH << 8) + ADRESL;
         num2str10bit(val, adc_str);
+        */
+        adc_buf.voltage_high = ADRESH;
+        adc_buf.voltage_low= ADRESL;
         ADCON0bits.CHS = 4; // Select AN ch 4
         ADCON0bits.ADFM = 1;//Right justify data
 
@@ -70,8 +77,12 @@ void main(void)
         delay(10000);
         ADCON0bits.GO = 1;
         while (ADCON0bits.GO); //Wait until finished
-        val = ((uint16_t)ADRESH << 8) + ADRESL;
+       /* val = ((uint16_t)ADRESH << 8) + ADRESL;
         num2str10bit(val, adc_str2);
+        */
+        adc_buf.current_high = ADRESH;
+        adc_buf.current_low= ADRESL;
+        ADCON0bits.CHS = 4; // Select AN ch 4
         ADCON0bits.CHS = 7; // Select AN ch 7
         ADCON0bits.ADFM = 1;//Right justify data
     }
@@ -79,7 +90,6 @@ void main(void)
 
 inline void toggle_leds()
 {
-    //LED_PORT = !LED_PORT;
     PORTA = PORTA^A_MASK;
     PORTB = PORTB^B_MASK;
     PORTC = PORTC^C_MASK;
@@ -111,27 +121,18 @@ void Itr_Routine(void) __interrupt 0
     if (PIR1bits.SSPIF & SSPSTATbits.BF)
     {
         volatile uint8_t read = SSPBUF;
-        if (read == 'S') msg_idx = 0; // Start
-        //if (SSPCONbits.WCOL) SSPBUF = 0x80;
-        //else if (SSPCONbits.WCOL) SSPBUF = 0x40;
-        //else SSPBUF = write;
-        //write++;
-        //SSPBUF = read;
+        if (read == 'R') msg_idx = 0; // Reset
 
-        if (msg_idx == 0xff)
-        {
-            SSPBUF = 0x00;
-            PIR1bits.SSPIF = 0;
-            return;
+        if (msg_idx == 0){
+            message[2] = adc_buf.voltage_high;
+            message[3] = adc_buf.voltage_low;
+            message[4] = adc_buf.current_high;
+            message[5] = adc_buf.current_low;
         }
         SSPBUF = message[msg_idx];
-        // Send 0 as last char so receiver knows when to stop reading
-        if (!message[msg_idx] || msg_idx == sizeof(message)){
-            msg_idx = 0xff;
-            //msg_idx = 0;
-            //message[0] = 0; // Clear message
-        } else {
-            msg_idx++;
+        msg_idx++;
+        if (msg_idx == sizeof(message)){
+            msg_idx = 0;
         }
 
         PIR1bits.SSPIF = 0;
@@ -150,6 +151,10 @@ void setup()
     TRISA = 0xff^A_MASK;
     TRISB = 0xff^B_MASK;
     TRISC = 0xff^C_MASK;
+
+    PORTA = 0x00;
+    PORTB = 0x00;
+    PORTC = 0x00;
 
     ANSEL = 0x90;//AN7 (RC3) and AN4 (RC0)
     ANSELH = 0;
@@ -186,11 +191,6 @@ void setup()
     //PIR1bits.ADIF = 0;
     //PIE1bits.ADIE = 1;//Enable interrupt
 
-    //Setup outputs
-    //LED_TRIS = 0;
-
-    //LED_PORT = 0;
-
     //Setup and start timer 2 for pwm
     //setup_tmr_pwm();
 }
@@ -209,9 +209,9 @@ void setup_tmr_pwm()
 void led_boot_sequence()
 {
     for (int i=0; i < 3; i++){
-        LED_PORT = 1;
-        delay(10000);
-        LED_PORT = 0;
+        toggle_leds();
+            delay(30000);
+        toggle_leds();
         delay(5000);
     }
 }
