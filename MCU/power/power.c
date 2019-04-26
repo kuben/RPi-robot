@@ -15,6 +15,9 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
 
 #define LED_PORT PORTAbits.RA0
 #define LED_TRIS TRISAbits.TRISA0
+#define A_MASK 0x33
+#define B_MASK 0xa0
+#define C_MASK 0x1f
 
 #define NOP __asm__ ("nop")
 #define TNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
@@ -25,6 +28,7 @@ void setup_tmr_pwm();
 void rx_done(uint8_t word);
 void spi_msg(char *msg);
 void led_boot_sequence();
+inline void toggle_leds();
 
 volatile uint8_t l_speed = 7;
 volatile uint8_t write = 0;
@@ -53,7 +57,7 @@ void main(void)
     spi_msg("An. read \"    \" and \"    \".");
     volatile uint8_t i = 0;
     while (1) {
-        LED_PORT = !LED_PORT;
+        toggle_leds();
         delay(10000);
         ADCON0bits.GO = 1;
         while (ADCON0bits.GO); //Wait until finished
@@ -62,7 +66,7 @@ void main(void)
         ADCON0bits.CHS = 4; // Select AN ch 4
         ADCON0bits.ADFM = 1;//Right justify data
 
-        LED_PORT = !LED_PORT;
+        toggle_leds();
         delay(10000);
         ADCON0bits.GO = 1;
         while (ADCON0bits.GO); //Wait until finished
@@ -73,6 +77,13 @@ void main(void)
     }
 }
 
+inline void toggle_leds()
+{
+    //LED_PORT = !LED_PORT;
+    PORTA = PORTA^A_MASK;
+    PORTB = PORTB^B_MASK;
+    PORTC = PORTC^C_MASK;
+}
 /*
 void receive(uint8_t word)
 {
@@ -136,9 +147,9 @@ void Itr_Routine(void) __interrupt 0
 void setup()
 {
     //All pins inputs
-    TRISA = 0xff;
-    TRISB = 0xff;
-    TRISC = 0xff;
+    TRISA = 0xff^A_MASK;
+    TRISB = 0xff^B_MASK;
+    TRISC = 0xff^C_MASK;
 
     ANSEL = 0x90;//AN7 (RC3) and AN4 (RC0)
     ANSELH = 0;
@@ -176,9 +187,9 @@ void setup()
     //PIE1bits.ADIE = 1;//Enable interrupt
 
     //Setup outputs
-    LED_TRIS = 0;
+    //LED_TRIS = 0;
 
-    LED_PORT = 0;
+    //LED_PORT = 0;
 
     //Setup and start timer 2 for pwm
     //setup_tmr_pwm();
