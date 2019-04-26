@@ -12,6 +12,7 @@
 #include <string.h>
 #include <curses.h>
 #include <math.h>
+#include <stdarg.h>
 
 #include "serial_lib.h"
 #include "utils.h"
@@ -26,7 +27,6 @@
 #ifdef __arm__
 struct query_arg_struct
 {
-  float *battery_voltage;
   double *rpm_r;
   double *rpm_l;
   int *running;
@@ -49,7 +49,7 @@ void set_brake(struct motor *motor_struct);
 
 void manual_input(struct motor *left, struct motor *right);
 void send_over_uart();
-int format_motor_text(char *text, int length, struct motor *left, struct motor *right);
+int format_motor_text(struct text_bar *bar, struct motor *left, struct motor *right);
 
 int keypress_mode_stepwise(char c, struct motor *left, struct motor *right);
 int keypress_mode_dynamic (char c, struct motor *left, struct motor *right
@@ -64,6 +64,14 @@ struct text_bar debug_bar = {0};
 struct text_bar messages_bar = {0};
 struct text_bar peripherals_bar = {0};
 int *running;
+
+void write_to_bar(struct text_bar *bar, const char *format, ...)
+{
+    va_list valist;
+    va_start(valist, format);
+    vsnprintf(bar->text,sizeof(bar->text), format, valist);
+}
+
 int main(int argc, char **argv)
 {
   running = malloc(sizeof(int));
@@ -74,11 +82,10 @@ int main(int argc, char **argv)
   right_motor.mode = 0x20;//Right bit set
   double *rpm_r = malloc(sizeof(double));
   double *rpm_l = malloc(sizeof(double));
-  float *battery_voltage = malloc(sizeof(float));
-
+  float batt_voltage = 0.0;
+  float current_consumption= 0.0;
   *rpm_r = 0.0;
   *rpm_l = 0.0;
-  *battery_voltage = 0.0;
 
 #ifdef __arm__
   // Set up gpi pointer for direct register access
@@ -90,12 +97,12 @@ int main(int argc, char **argv)
   pthread_t query_thread;//Only one thread PIC for information
 
   struct query_arg_struct *args_query = malloc(sizeof(struct query_arg_struct));
-  *args_query = (struct query_arg_struct){.battery_voltage = battery_voltage,
+  *args_query = (struct query_arg_struct){
         .rpm_r = rpm_r, .rpm_l = rpm_l, .running = running};
 
   create_thread(&query_thread, query_adc, (void *)args_query);
 #endif
-  open_uart();
+  //open_uart();
 
   /* Initialize Curses*/
   initscr();
@@ -108,16 +115,24 @@ int main(int argc, char **argv)
   debug_bar.y = LINES - 3;
   messages_bar.y = LINES - 2;
   peripherals_bar.y = LINES - 1;
-  snprintf(peripherals_bar.text,sizeof(peripherals_bar.text),"UART closed");
-  snprintf(messages_bar.text,sizeof(messages_bar.text),"UART reply: ");
+  write_to_bar(&peripherals_bar, "UART closed");
+  write_to_bar(&messages_bar, "UART reply: ");
 
+  char debug_str[50] = {0};
   while (*running)
   {
-    rx_uart_message(messages_bar.text+11, sizeof(messages_bar.text)-11);
-    snprintf(status_bar.text,sizeof(status_bar.text),"READ FREQ %lf  (mode %d)\n"
-            , *battery_voltage,mode);
-
-    format_motor_text(motor_bar.text,sizeof(motor_bar.text),&left_motor,&right_motor);
+    //rx_uart_message(messages_bar.text+11, sizeof(messages_bar.text)-11);
+    int ret = read_power_mcu(&batt_voltage, &current_consumption, debug_str);
+    if (ret == 1){
+//        write_to_bar(&status_bar, "Error in response over SPI");
+        write_to_bar(&status_bar, debug_str);
+    } else {
+        //write_to_bar(&status_bar, debug_str);
+        write_to_bar(&status_bar, "Read SPI: Batt = %.3fV  Current %.3fV  (mode %d)"
+                , batt_voltage, current_consumption, mode);
+    }
+        
+    format_motor_text(&motor_bar, &left_motor, &right_motor);
 
     draw_text_bar(&motor_bar);
     draw_text_bar(&status_bar);
@@ -168,7 +183,7 @@ int main(int argc, char **argv)
   }
 
   endwin();
-  close_uart();
+  //close_uart();
 #ifdef __arm__
   free_io();
   //Unneccessary
@@ -179,7 +194,6 @@ int main(int argc, char **argv)
   free(running);
   free(rpm_l);
   free(rpm_r);
-  free(battery_voltage);
 
   exit(EXIT_SUCCESS);
 
@@ -425,7 +439,7 @@ void send_over_uart()
 
 //Prints for example
 //  L: 81% fwd [25/31]  R: 84% fwd [26/31]
-int format_motor_text(char *text, int length, struct motor *left, struct motor *right)
+int format_motor_text(struct text_bar *bar, struct motor *left, struct motor *right)
 {
   //if (length < 41) return 1;
   const char *fwd = "fwd";
@@ -440,7 +454,7 @@ int format_motor_text(char *text, int length, struct motor *left, struct motor *
   else if (right->mode == 0x60) mode_str_r = rev;
   else mode_str_r = brk;
 
-  snprintf(text, length, "L: %.3d%% %s [%.2d/31]  R: %.3d%% %s [%.2d/31]"
+  write_to_bar(bar, "L: %.3d%% %s [%.2d/31]  R: %.3d%% %s [%.2d/31]"
           ,left->speed*100/31,mode_str_l,left->speed
           ,right->speed*100/31,mode_str_r,right->speed);
   return 0;

@@ -35,6 +35,7 @@ struct sensor_arg_struct
 void *read_sensors(void *arguments);
 */
 #ifdef __arm__
+int read_power_mcu(float *batt_voltage, float *current, char *debug_str);
 int read_mcp3008(int channel, float *voltage);
 #endif
 
