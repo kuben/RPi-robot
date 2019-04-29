@@ -122,6 +122,7 @@ int main(int argc, char **argv)
   while (*running)
   {
     //rx_uart_message(messages_bar.text+11, sizeof(messages_bar.text)-11);
+#ifdef __arm__
     int ret = read_power_mcu(&batt_voltage, &current_consumption, debug_str);
     if (ret == 1){
 //        write_to_bar(&status_bar, "Error in response over SPI");
@@ -131,7 +132,7 @@ int main(int argc, char **argv)
         write_to_bar(&status_bar, "Read SPI: Batt = %.3fV  Current %.3fV  (mode %d)"
                 , batt_voltage, current_consumption, mode);
     }
-        
+#endif
     format_motor_text(&motor_bar, &left_motor, &right_motor);
 
     draw_text_bar(&motor_bar);

@@ -1,25 +1,31 @@
-#ARCH := $(shell gcc -dumpmachine | awk -F- '{print $1}')
+# Some files can only be compiled on device with gpio and spi and so on..
 ARCH := $(shell uname -m)
-DEPS_x86_64 = utils.h serial_lib.h
 OBJECTS_x86_64 = RPi-robot.o utils.o serial_lib.o
-DEPS_armv7l = utils.h serial_lib.h analog_sample.h
 OBJECTS_armv7l = RPi-robot.o utils.o serial_lib.o analog_sample.o
-DEPS_armv6l = utils.h serial_lib.h analog_sample.h
 OBJECTS_armv6l = RPi-robot.o utils.o serial_lib.o analog_sample.o
-DEPS = $(DEPS_$(ARCH))
 OBJECTS = $(OBJECTS_$(ARCH))
+DEPS = $(OBJECTS:.o=.d)  # one dependency file for each source
 
 CFLAGS = -Wall -lncurses -pthread -O3 -Wno-format-truncation
 CC = gcc
+CPP = cpp
 
-default: all
-
-all: RPi-robot
+default: RPi-robot
 
 RPi-robot: $(OBJECTS)
 	$(CC) $(CFLAGS) -o RPi-robot $(OBJECTS)
 
-%.o: %.c $(DEPS)#Depends on all .h files now, unneccessary
-	$(CC) -c $< $(CFLAGS) -o $@
+# Rules for building objects from dependency files
+-include $(DEPS)   # include all dep files in the makefile
+
+# rule to generate a dep file by using the C preprocessor
+%.d: %.c
+	@$(CPP) $(CFLAGS) $< -MM -MT $(@:.d=.o) >$@
+
+.PHONY: clean
 clean:
-	rm -f *.o
+	rm -f $(OBJECTS)
+
+.PHONY: cleandeps
+cleandep:
+	rm -f $(DEPS)
