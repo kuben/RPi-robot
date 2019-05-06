@@ -17,16 +17,29 @@ __code uint16_t __at (_CONFIG) __configword = _INTRC_OSC_NOCLKOUT & _WDTE_OFF & 
 #define B_MASK 0xa0
 #define C_MASK 0x36
 
-#define NOP __asm__ ("nop")
-#define TNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
-#define NNOP NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP;NOP
+#define PIN_1 PORTAbits.RA5
+#define PIN_2 PORTAbits.RA4
+#define PIN_3 PORTAbits.RA0
+#define PIN_4 PORTCbits.RC1
+#define PIN_5 PORTCbits.RC5
+#define PIN_6 PORTAbits.RA2
+#define PIN_7 PORTCbits.RC2
+#define PIN_8 PORTCbits.RC4
+#define PIN_9 PORTBbits.RB5
+#define PIN_10 PORTBbits.RB7
 
 void setup();
-void setup_tmr_pwm();
+void setup_tmr_indicator();
+void setup_tmr_adc();
 void rx_done(uint8_t word);
 void spi_msg(char *msg);
 void led_boot_sequence();
 inline void toggle_leds();
+inline void leds_high();
+inline void leds_low();
+
+volatile uint8_t indicator_progress = 0;//Updated at 15.25Hz
+volatile uint8_t max_ind_prog = (uint8_t)(15.25*1);
 
 volatile uint8_t message[6];
 volatile uint8_t msg_idx = 0;
@@ -39,52 +52,32 @@ struct ADC_buffer {
 };
 struct ADC_buffer adc_buf = {0xff};
 
-//uint16_t val = 0;
+#define indicator(IND, PREV, CUR) while(indicator_progress != IND);\
+    CUR = 0; PREV = 1
+
 void main(void)
 {
     setup();
-    led_boot_sequence();
-    if(!PCONbits.NOT_BOR){
-        PCONbits.NOT_BOR = 1;//Reset bit for future resets
-        //spi_msg("Boot (BOR)\n");
-    } else if(!PCONbits.NOT_POR){
-        PCONbits.NOT_BOR = 1;//Reset bit for future resets
-        PCONbits.NOT_POR = 1;//Reset bit for future resets
-        //spi_msg("Boot (POR)\n");
-    } else {
-        //spi_msg("Boot (MCLR)\n");
-    }
+    leds_high();
 
-    //spi_msg("An. read \"    \" and \"    \".");
     message[0] = 0xff;
     message[1] = 0xff;
     volatile uint8_t i = 0;
+    uint8_t p = 0; //Non-volatile dummy variable
     while (1) {
-        toggle_leds();
-        delay(10000);
-        ADCON0bits.GO = 1;
-        while (ADCON0bits.GO); //Wait until finished
-        /*
-        val = ((uint16_t)ADRESH << 8) + ADRESL;
-        num2str10bit(val, adc_str);
-        */
-        adc_buf.voltage_high = ADRESH;
-        adc_buf.voltage_low= ADRESL;
-        ADCON0bits.CHS = 4; // Select AN ch 4
-        ADCON0bits.ADFM = 1;//Right justify data
+        indicator(0, p    , PIN_1);
+        indicator(1, PIN_1, PIN_2);
+        indicator(2, PIN_2, PIN_3);
+        indicator(3, PIN_3, PIN_4);
+        indicator(4, PIN_4, PIN_5);
+        indicator(5, PIN_5, PIN_6);
+        indicator(6, PIN_6, PIN_7);
+        indicator(7, PIN_7, PIN_8);
+        indicator(8, PIN_8, PIN_9);
+        indicator(9, PIN_9, PIN_10);
+        indicator(10, PIN_10, p);
 
-        toggle_leds();
-        delay(10000);
         ADCON0bits.GO = 1;
-        while (ADCON0bits.GO); //Wait until finished
-       /* val = ((uint16_t)ADRESH << 8) + ADRESL;
-        num2str10bit(val, adc_str2);
-        */
-        adc_buf.current_high = ADRESH;
-        adc_buf.current_low= ADRESL;
-        ADCON0bits.CHS = 4; // Select AN ch 4
-        ADCON0bits.CHS = 7; // Select AN ch 7
-        ADCON0bits.ADFM = 1;//Right justify data
     }
 }
 
@@ -94,20 +87,20 @@ inline void toggle_leds()
     PORTB = PORTB^B_MASK;
     PORTC = PORTC^C_MASK;
 }
-/*
-void receive(uint8_t word)
+
+inline void leds_high()
 {
-    strcpy(message, "  [   ]      !\n");
-    if(word < 32 || word == 127 || word > 127) message[0] = ' ';//Unprintable/DEL
-    else message[0] = word;
-    num2str(word,message+3,0);
-    num2str(l_speed,message+8,0);
-    num2str(r_speed,message+11,0);
-    msg_idx = 0;
-    TX_PENDING = 1;
-    return;
+    PORTA = 1;
+    PORTB = 1;
+    PORTC = 1;
 }
-    */
+
+inline void leds_low()
+{
+    PORTA = 0;
+    PORTB = 0;
+    PORTC = 0;
+}
 
 void spi_msg(char *msg)
 {
@@ -118,6 +111,16 @@ void spi_msg(char *msg)
 
 void Itr_Routine(void) __interrupt 0
 {
+    // This interrupt should be fired at 15.25Hz
+    // Increase counter to measure progress in blinking
+    if (INTCONbits.T0IF)
+    {
+        indicator_progress++;
+        if(indicator_progress > max_ind_prog) indicator_progress = 0;
+        INTCONbits.T0IF = 0;
+    }
+
+    // SPI interrupt
     if (PIR1bits.SSPIF & SSPSTATbits.BF)
     {
         volatile uint8_t read = SSPBUF;
@@ -137,12 +140,26 @@ void Itr_Routine(void) __interrupt 0
 
         PIR1bits.SSPIF = 0;
     }
-    /*
+
+    // ADC conversion complete
     if(PIR1bits.ADIF)
     {
+        if (ADCON0bits.CHS == 4){ // Channel 4 is voltage sensor
+            adc_buf.voltage_high = ADRESH;
+            adc_buf.voltage_low = ADRESL;
+            ADCON0bits.CHS = 7; // Select AN ch 7
+        } else {
+            adc_buf.current_high = ADRESH;
+            adc_buf.current_low = ADRESL;
+            ADCON0bits.CHS = 4; // Select AN ch 4
+        }
+        ADCON0bits.ADFM = 1;//Right justify data
+        /*
+        val = ((uint16_t)ADRESH << 8) + ADRESL;
+        num2str10bit(val, adc_str);
+        */
         PIR1bits.ADIF = 0;
     }
-    */
 }
 
 void setup()
@@ -185,17 +202,41 @@ void setup()
 
     //Setup ADC
     ADCON1 = 0x50;//T_AD = 4us at 4MHz osc
-    ADCON0bits.CHS = 0x7;
+    ADCON0bits.CHS = 4;
     ADCON0bits.ADFM = 1;//Right justify data
     ADCON0bits.ADON = 1;
-    //PIR1bits.ADIF = 0;
-    //PIE1bits.ADIE = 1;//Enable interrupt
+    PIR1bits.ADIF = 0;
+    PIE1bits.ADIE = 1;//Enable interrupt
 
-    //Setup and start timer 2 for pwm
-    //setup_tmr_pwm();
+    //Determine what kind of reboot we experienced
+    if(!PCONbits.NOT_BOR){
+        PCONbits.NOT_BOR = 1;//Reset bit for future resets
+        //spi_msg("Boot (BOR)\n");
+    } else if(!PCONbits.NOT_POR){
+        PCONbits.NOT_BOR = 1;//Reset bit for future resets
+        PCONbits.NOT_POR = 1;//Reset bit for future resets
+        //spi_msg("Boot (POR)\n");
+    } else {
+        //spi_msg("Boot (MCLR)\n");
+    }
+
+    //setup_tmr_adc();
+
+    led_boot_sequence();
+
+    setup_tmr_indicator(); // After boot sequence, starts interrupting
 }
 
-void setup_tmr_pwm()
+void setup_tmr_indicator()
+{
+    OPTION_REGbits.T0CS = 0;    //TMR0 source internal clock
+    OPTION_REGbits.PSA = 0;     //Pre-scaler assigned to TMR0
+    OPTION_REGbits.PS = 0x7;  //TMR0 1:256 pre-scaler
+    TMR0 = 0;
+    INTCONbits.T0IE = 1; //Enable interrupt
+}
+
+void setup_tmr_adc()
 {
     T2CON = 0;
     TMR2 = 0;
@@ -206,12 +247,72 @@ void setup_tmr_pwm()
     T2CONbits.TMR2ON = 1;
 }
 
+#define boot_I(PREV, CUR) PREV = 0; CUR = 1; delay(1200)
 void led_boot_sequence()
 {
-    for (int i=0; i < 3; i++){
-        toggle_leds();
-            delay(30000);
-        toggle_leds();
-        delay(5000);
-    }
+    uint8_t p = 0;//Dummy variable, may be optimized away by compiler
+    //Boot sequence I
+    boot_I(p, PIN_1);
+    boot_I(PIN_1, PIN_2);
+    boot_I(PIN_2, PIN_3);
+    boot_I(PIN_3, PIN_4);
+    boot_I(PIN_4, PIN_5);
+    boot_I(PIN_5, PIN_6);
+    boot_I(PIN_6, PIN_7);
+    boot_I(PIN_7, PIN_8);
+    boot_I(PIN_8, PIN_9);
+    boot_I(PIN_9, PIN_10);
+    delay(2000);
+    boot_I(PIN_10, PIN_9);
+    boot_I(PIN_9, PIN_8);
+    boot_I(PIN_8, PIN_7);
+    boot_I(PIN_7, PIN_6);
+    boot_I(PIN_6, PIN_5);
+    boot_I(PIN_5, PIN_4);
+    boot_I(PIN_4, PIN_3);
+    boot_I(PIN_3, PIN_2);
+    boot_I(PIN_2, PIN_1);
+    boot_I(PIN_1, p);
+    delay(15000);
+
+    //Boot sequence II
+    boot_I(p    , PIN_1);
+    boot_I(p    , PIN_2);
+    boot_I(p    , PIN_3);
+    boot_I(PIN_1, PIN_4);
+    boot_I(PIN_2, PIN_5);
+    boot_I(PIN_3, PIN_6);
+    boot_I(PIN_4, PIN_7);
+    boot_I(PIN_5, PIN_8);
+    boot_I(PIN_6, PIN_9);
+    boot_I(PIN_7, PIN_10);
+    boot_I(PIN_8, p);
+    boot_I(PIN_9, p);
+    delay(2000);
+    boot_I(p    , PIN_9);
+    boot_I(p    , PIN_8);
+    boot_I(PIN_10, PIN_7);
+    boot_I(PIN_9, PIN_6);
+    boot_I(PIN_8, PIN_5);
+    boot_I(PIN_7, PIN_4);
+    boot_I(PIN_6, PIN_3);
+    boot_I(PIN_5, PIN_2);
+    boot_I(PIN_4, PIN_1);
+    boot_I(PIN_3, p);
+    boot_I(PIN_2, p);
+    boot_I(PIN_1, p);
+    delay(10000);
+
+    //Boot sequence III
+    boot_I(p, PIN_1);
+    boot_I(p, PIN_2);
+    boot_I(p, PIN_3);
+    boot_I(p, PIN_4);
+    boot_I(p, PIN_5);
+    boot_I(p, PIN_6);
+    boot_I(p, PIN_7);
+    boot_I(p, PIN_8);
+    boot_I(p, PIN_9);
+    boot_I(p, PIN_10);
+    delay(20000);
 }
