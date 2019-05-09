@@ -90,7 +90,6 @@ int main(int argc, char **argv)
     setup_io();
     open_spi_power();
     open_spi_driver();
-    init_time();
 
     INP_GPIO(PIN_PROX);
 
@@ -104,6 +103,7 @@ int main(int argc, char **argv)
 
     create_thread(&query_thread, query_adc, (void *)&args_query);
 #endif
+    init_time();
     //open_uart();
 
     /* Initialize Curses*/
