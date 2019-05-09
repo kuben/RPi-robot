@@ -6,6 +6,20 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 
+void init_time()
+{
+    clock_gettime(CLOCK_MONOTONIC, &starting_time);
+}
+
+long running_time()
+{
+    struct timespec now_time;
+    long elapsed;
+    clock_gettime(CLOCK_MONOTONIC, &now_time);
+    timespec_diff_ms(&starting_time, &now_time, &elapsed);
+    return elapsed;
+}
+
 void printButton(int g)
 {
   if (GET_GPIO(g)) // !=0 <-> bit is 1 <- port is HIGH=3.3V
@@ -53,7 +67,8 @@ void timespec_diff_ms(struct timespec *start, struct timespec *stop, long *msec)
 {
   long sec_part = stop->tv_sec - start->tv_sec;
   sec_part *= 1000;
-  *msec = (stop->tv_nsec - start->tv_nsec)/1000000 + sec_part;
+  long msec_part = (stop->tv_nsec - start->tv_nsec)/1000000;
+  *msec = sec_part + msec_part;
   return;
 }
 

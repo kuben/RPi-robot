@@ -9,6 +9,11 @@
 #define PAGE_SIZE (4*1024)
 #define BLOCK_SIZE (4*1024)
 
+struct timespec starting_time;
+
+void init_time();
+long running_time();
+
 int  mem_fd;
 void *gpio_map;
 
