@@ -5,6 +5,14 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <stdarg.h>
+
+void write_to_bar(struct text_bar *bar, const char *format, ...)
+{
+    va_list valist;
+    va_start(valist, format);
+    vsnprintf(bar->text,sizeof(bar->text), format, valist);
+}
 
 void init_time()
 {
@@ -141,7 +149,8 @@ void setup_io()
 
 void free_io()
 {
-  free(gpio_map);
+    munmap(gpio_map, BLOCK_SIZE);
+    close(mem_fd);
 }
 
 int shift_into_array(long *array, int size, long element_in)

@@ -30,6 +30,8 @@ extern struct text_bar debug_bar;
 extern struct text_bar messages_bar;
 extern struct text_bar peripherals_bar;
 
+void write_to_bar(struct text_bar *bar, const char *format, ...);
+
 // GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x) or SET_GPIO_ALT(x,y)
 #define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
 #define OUT_GPIO(g) *(gpio+((g)/10)) |=  (1<<(((g)%10)*3))

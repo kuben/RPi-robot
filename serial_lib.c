@@ -12,6 +12,7 @@
  */
 
 #include "serial_lib.h"
+#include "utils.h"
 
 static void pabort(const char *s)
 {
@@ -104,14 +105,17 @@ int close_spi_driver()
 
 
 const float cur_sens = 0.185;// Sensitivity of current sensor [V/A]
-int read_power_mcu(float *batt_voltage, float *current, char *debug_str)
+int read_power_mcu(float *batt_voltage, float *current)
 {
     const uint8_t tx[] = { 0, 0, 0, 0, 0, 'R'};
     uint8_t rx[sizeof(tx)] = {0, };
     spi_transfer(fd, tx, rx, sizeof(tx));
 
-    sprintf(debug_str, "SPI read %.2x %.2x %.2x %.2x %.2x %.2x"
+    // For debugging
+    write_to_bar(debug_bar, "DBG: SPI read %.2x %.2x %.2x %.2x %.2x %.2x"
             , rx[0], rx[1], rx[2], rx[3], rx[4], rx[5]);
+
+    // Check validity
     if (rx[0] != 0xff || rx[1] != 0xff) return 1;
     if (rx[2] & 0xfc) return 1;
     if (rx[4] & 0xfc) return 1;
@@ -278,5 +282,21 @@ int rx_uart_message(char *message, size_t size)
         return 1;
     }
     read(uart0_filestream, (void*)message, size);
+    return 0;
+}
+
+int format_serial_text(struct text_bar *bar)
+{
+    const char* str_open = "open";
+    const char* str_closed= "closed";
+#ifdef __arm__
+    write_to_bar(bar, "Power SPI %s (%s)\t Driver SPI %s (%s)\t UART %s (%s)"
+            , (fd_power >= 0)?str_open:str_closed, spi_device_power
+            , (fd_driver>= 0)?str_open:str_closed, spi_device_driver
+            , (uart0_filestream >= 0)?"open":"closed", uart_device);
+#else
+    write_to_bar(bar, "UART %s (%s)"
+            , (uart0_filestream >= 0)?str_open:str_closed, uart_device);
+#endif
     return 0;
 }

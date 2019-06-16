@@ -12,7 +12,6 @@
 #include <string.h>
 #include <curses.h>
 #include <math.h>
-#include <stdarg.h>
 
 #include "serial_lib.h"
 #include "utils.h"
@@ -53,7 +52,7 @@ void manual_input(struct motor *left, struct motor *right);
 void send_over_uart();
 int format_motor_text(struct text_bar *bar, struct motor *left, struct motor *right);
 
-int keypress_mode_stepwise(char c, int *running, struct motor *left, struct motor *right);
+int keypress_mode_stepwise(char c, volatile int *running, struct motor *left, struct motor *right);
 int keypress_mode_dynamic (char c, struct motor *left, struct motor *right
         , uint8_t step_small, uint8_t step_big, uint8_t min);
 
@@ -65,13 +64,6 @@ void draw_text_bar(struct text_bar *bar)
 struct text_bar debug_bar = {0};
 struct text_bar messages_bar = {0};
 struct text_bar peripherals_bar = {0};
-
-void write_to_bar(struct text_bar *bar, const char *format, ...)
-{
-    va_list valist;
-    va_start(valist, format);
-    vsnprintf(bar->text,sizeof(bar->text), format, valist);
-}
 
 int main(int argc, char **argv)
 {
@@ -91,7 +83,7 @@ int main(int argc, char **argv)
     open_spi_power();
     open_spi_driver();
 
-    INP_GPIO(PIN_PROX);
+    //INP_GPIO(PIN_PROX);
 
 
     pthread_t query_thread;//Only one thread PIC for information
@@ -117,32 +109,25 @@ int main(int argc, char **argv)
     debug_bar.y = LINES - 3;
     messages_bar.y = LINES - 2;
     peripherals_bar.y = LINES - 1;
-    write_to_bar(&peripherals_bar, "UART closed");
-    write_to_bar(&messages_bar, "%ld UART reply: ", running_time());
+    write_to_bar(&debug_bar, "DBG: ");
+    write_to_bar(&motor_bar, "MOT: ");
+    write_to_bar(&status_bar, "STAT: ");
+    write_to_bar(&peripherals_bar, "PER:");
+    write_to_bar(&messages_bar, "MSG: Running for %.1fs", running_time()/1000.0);
 
-    char debug_str[50] = {0};
     while (running)
     {
         //rx_uart_message(messages_bar.text+11, sizeof(messages_bar.text)-11);
 #ifdef __arm__
         int ret = read_power_mcu(&batt_voltage, &current_consumption, debug_str);
-        if (ret == 1){
-            //        write_to_bar(&status_bar, "Error in response over SPI");
-            write_to_bar(&status_bar, debug_str);
-        } else {
-            //write_to_bar(&status_bar, debug_str);
+        if (!ret){
             write_to_bar(&status_bar, "Read SPI: Batt = %.3fV  Current %.3fV  (mode %d)"
                     , batt_voltage, current_consumption, mode);
         }
 #endif
-        write_to_bar(&messages_bar, "%.1f UART reply: ", running_time()/1000.0);
+        write_to_bar(&messages_bar, "MSG: Running for %.1fs", running_time()/1000.0);
         format_motor_text(&motor_bar, &left_motor, &right_motor);
-
-        draw_text_bar(&motor_bar);
-        draw_text_bar(&status_bar);
-        draw_text_bar(&debug_bar);
-        draw_text_bar(&messages_bar);
-        draw_text_bar(&peripherals_bar);
+        format_serial_text(&peripherals_bar);
 
         //Read sensors
 
@@ -154,6 +139,13 @@ int main(int argc, char **argv)
         //Channel 1 - Proximity
         //read_mcp3008(1, sensor_voltage);
         //mvprintw(4,0,"In proximity? (%-4lfV) ", *sensor_voltage);
+
+        // Draw all bars
+        draw_text_bar(&motor_bar);
+        draw_text_bar(&status_bar);
+        draw_text_bar(&debug_bar);
+        draw_text_bar(&messages_bar);
+        draw_text_bar(&peripherals_bar);
 
         refresh();
         int c = getch();
@@ -204,7 +196,7 @@ int main(int argc, char **argv)
  * Duty cycle or setpoint depending on arguments
  * Return 1 when changing mode
  */
-int keypress_mode_stepwise(char c, int *running, struct motor *left, struct motor *right)
+int keypress_mode_stepwise(char c, volatile int *running, struct motor *left, struct motor *right)
 {
     const char l_str[6] = "Left";
     const char r_str[6] = "Right";

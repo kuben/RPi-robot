@@ -39,7 +39,7 @@ int open_spi_power();
 int open_spi_driver();
 int close_spi_power();
 int close_spi_driver();
-int read_power_mcu(float *batt_voltage, float *current, char *debug_str);
+int read_power_mcu(float *batt_voltage, float *current);
 int read_mcp3008(int channel, float *voltage);
 #endif
 
@@ -48,5 +48,6 @@ void close_uart();
 int tx_uart(uint8_t word);
 int rx_uart_word(uint8_t *word);
 int rx_uart_message(char *message, size_t size);
+int format_serial_text(struct text_bar *bar);
 
 #endif

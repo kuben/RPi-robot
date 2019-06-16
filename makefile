@@ -12,6 +12,9 @@ CPP = cpp
 
 default: RPi-robot
 
+debug: CFLAGS += -g
+debug: RPi-robot
+
 RPi-robot: $(OBJECTS)
 	$(CC) $(CFLAGS) -o RPi-robot $(OBJECTS)
 
